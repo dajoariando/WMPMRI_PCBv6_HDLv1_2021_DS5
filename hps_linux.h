@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "socal/hps.h"
+#include <socal/hps.h>
 #include "hps_soc_system.h"
 #include "functions/general.h"
 
@@ -61,15 +61,24 @@ volatile unsigned int *h2p_dac_addr			= NULL; // gpio for dac (spi)
 
 
 // pll reconfig address for NMR transmitter
-void *h2p_nmr_pll_addr 							= NULL; // PLL reconfiguration control for the NMR transmitter
+// void *h2p_nmr_pll_addr 							= NULL; // PLL reconfiguration control for the NMR transmitter
+
+// pll reconfig address for the nmr system
+void *h2p_nmr_sys_pll_addr					= NULL; // nmr system pll reconfiguration
+
+// pll reconfig address for the analyzer / hardware characterizer
+void *h2p_analyzer_pll_addr					= NULL;
 
 // NMR sequence fsm parameter addresses
-void *h2p_pulse1_addr						= NULL; // PLL 90-deg length
-void *h2p_pulse2_addr						= NULL; // PLL 180-deg length
-void *h2p_delay1_addr						= NULL; // PLL delay length after 90-deg signal
-void *h2p_delay2_addr						= NULL; // PLL delay length after 180-deg signal
+void *h2p_pulse1_addr						= NULL; // 90-deg length
+void *h2p_pulse2_addr						= NULL; // 180-deg length
+void *h2p_delay1_addr						= NULL; // delay length after 90-deg signal
+void *h2p_delay2_addr						= NULL; // delay length after 180-deg signal
+void *h2p_pulse_t1_addr						= NULL; // pulse t1 length
+void *h2p_delay_t1_addr						= NULL; // delay t1 length
 void *h2p_echo_per_scan_addr 				= NULL; // the amount of echoes on 1 NMR scan
-void *h2p_nmr_pll_rst_dly_addr				= NULL; // the amount of delay between resetting the pll and starting the nmr fsm
+void *h2p_t1_pulse							= NULL; // the pulse length before CPMG (T1 measurement)
+void *h2p_t1_delay							= NULL; // the delay length before CPMG (T1 measurement)
 
 // adc addresses
 void *h2p_adc_fifo_addr									= NULL; // ADC FIFO output data address
@@ -129,7 +138,7 @@ void CPMG_Sequence (
 	char * avgname,
 	uint32_t enable_message
 );
-void tx_sampling(double freq, double samples_per_echo, char * filename);
+void tx_sampling(double tx_freq, double sampfreq, unsigned int samples_per_echo, char * filename);
 
 
 // global variables

@@ -38,11 +38,11 @@
 #include    <stdlib.h>
 #include    <stdbool.h>
 
-#include    "socal/hps.h"
-#include    "socal/socal.h"
-#include    "socal/alt_gpio.h"
-#include    "socal/alt_rstmgr.h"
-#include    "hwlib.h"
+#include    <socal/hps.h>
+#include    <socal/socal.h>
+#include    <socal/alt_gpio.h>
+#include    <socal/alt_rstmgr.h>
+#include    <hwlib.h>
 #include    "alt_generalpurpose_io.h"
 
 #ifdef soc_a10

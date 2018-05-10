@@ -18,6 +18,7 @@ void cpmg_param_calculator_ltc2314 (
 
 void cpmg_param_calculator_ltc1746 (
 	unsigned int * output,		// cpmg parameter output
+	double nmr_fsm_clkfreq,		// nmr fsm operating frequency (in MHz)
 	double cpmg_freq,			// cpmg operating frequency
 	double adc_sampling_freq,	// adc sampling frequency (for LTC2134 it is 4.5 Msps)
 	double shift_sampling_us,	// shift the 180 deg data capture relative to the middle of the 180 delay span. This is to compensate shifting because of signal path delay / other factors. This parameter could be negative as well
