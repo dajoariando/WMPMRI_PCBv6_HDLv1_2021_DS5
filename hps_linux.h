@@ -8,6 +8,10 @@
 #include "hps_soc_system.h"
 #include "functions/general.h"
 
+#define ALT_AXI_FPGASLVS_OFST (0xC0000000) // axi_master
+#define HW_FPGA_AXI_SPAN (0x40000000) // Bridge span
+#define HW_FPGA_AXI_MASK ( HW_FPGA_AXI_SPAN - 1 )
+
 // |=============|==========|==============|==========|
 // | Signal Name | HPS GPIO | Register/bit | Function |
 // |=============|==========|==============|==========|
@@ -40,6 +44,11 @@ void   *h2f_lw_axi_master     = NULL;
 size_t h2f_lw_axi_master_span = ALT_LWFPGASLVS_UB_ADDR - ALT_LWFPGASLVS_LB_ADDR + 1;
 size_t h2f_lw_axi_master_ofst = ALT_LWFPGASLVS_OFST;
 
+
+void *h2f_axi_master = NULL;
+size_t h2f_axi_master_span = HW_FPGA_AXI_SPAN;
+size_t h2f_axi_master_ofst = ALT_AXI_FPGASLVS_OFST;
+
 void *fpga_leds = NULL;
 void *fpga_switches = NULL;
 
@@ -54,9 +63,10 @@ void *h2p_ctrl_in_addr					= NULL; // control input signal for NMR FSM
 // this is due to the system in qsys usually uses byte addresses instead of word addresses. With one word is usually 4 bytes or 32 bits
 void *h2p_adcdata_addr							= NULL; // gpio for adc high speed
 void *h2p_led_addr								= NULL; // gpio for LEDs
-volatile unsigned long *h2p_i2ccommon_addr		= NULL; // gpio for i2c (used for relay control through io expander chip TCA9555PWR, and also rx gain selector)
-volatile unsigned int *h2p_dac_addr			= NULL; // gpio for dac (spi)
-// void *h2p_i2ccommon_addr		= NULL; // gpio for i2c (used for relay control through io expander chip TCA9555PWR, and also rx gain selector)
+volatile unsigned long *h2p_i2c_ext_addr		= NULL; // gpio for i2c (used for relay control through io expander chip TCA9555PWR, and also rx gain selector)
+volatile unsigned long *h2p_i2c_int_addr		= NULL; // gpio for i2c (used for relay control through io expander chip TCA9555PWR, and also rx gain selector)
+volatile unsigned int *h2p_dac_addr				= NULL; // gpio for dac (spi)
+// void *h2p_i2c_ext_addr		= NULL; // gpio for i2c (used for relay control through io expander chip TCA9555PWR, and also rx gain selector)
 // void *h2p_dac_addr			= NULL; // gpio for dac (spi)
 
 
@@ -89,7 +99,9 @@ volatile unsigned int *h2p_adc_str_fifo_status_addr	= NULL; // ADC streaming FIF
 void *h2p_adc_samples_per_echo_addr						= NULL; // The number of ADC capture per echo
 void *h2p_init_adc_delay_addr							= NULL; // The cycle number for delay in an echo after pulse 180 is done. The idea is to put adc capture in the middle of echo window and giving some freedom to move the ADC capture window within the echo window
 
-
+// DMA & SDRAM
+void *h2p_dma_addr = NULL;
+void *h2p_sdram_addr = NULL;
 
 
 void open_physical_memory_device();
@@ -111,7 +123,8 @@ int exit_program();												// terminate the program
 void init_dac_ad5722r ();
 void print_warning_ad5722r();
 void init_default_system_param();								// initialize the system with tuned default parameter
-void write_i2c_relay_cnt (uint8_t c_shunt, uint8_t c_series);	// program the capacitance with the relay
+void write_i2c_relay_cnt (uint8_t c_shunt, uint8_t c_series, uint8_t en_mesg);	// program the capacitance with the relay
+void write_i2c_cnt (uint32_t en, uint32_t addr_msk, uint8_t en_mesg);
 void write_i2c_rx_gain (uint8_t rx_gain);						// program the final receiver gain. 0x00 means minimum gain (not really zero gain) and 0x0F means max gain (infinite/open circuit). So effective value is 0x00 to 0x0E
 void test_dac_ad5722r();										// easy method to give number to dac
 void sweep_matching_network();									// sweep the capacitance in matching network by sweeping the relay (FOREVER LOOP)
@@ -121,7 +134,8 @@ void write_vbias_int(int16_t dac_v_bias);						// write vbias with a value
 void sweep_vbias();												// sweep the vbias
 void write_vvarac_int(int16_t dac_v_varac);						// write v_varactor with a value
 void sweep_vvarac ();											// sweep the v_varactor
-void sweep_rx_gain ();											// sweep the rx gain (FOREVER LOOP)
+void sweep_rx_gain ();										// sweep the rx gain (FOREVER LOOP)
+void close_system ();
 void CPMG_Sequence (
 	double cpmg_freq,
 	double pulse1_us,
@@ -152,5 +166,6 @@ char pathname[60];
 
 // FPGA control signal address
 uint32_t ctrl_out = CNT_OUT_default;					// default variable to store the current control state
+uint32_t ctrl_i2c = CNT_I2C_default;
 
 #endif

@@ -38,7 +38,9 @@
 	#define ARBLOST_DET_MSK			0x08
 	#define NACK_DET_SHFT			0x02
 	#define NACK_DET_MSK			0x04
+	#define RX_READY_SHFT			0x01
 	#define RX_READY_MSK			0x02
+	#define TX_READY_SHFT			0x00
 	#define TX_READY_MSK			0x01
 #define STATUS_OFST				0x05	// status register
 	#define CORE_STATUS_MSK			0x01
