@@ -91,17 +91,18 @@ void *h2p_t1_pulse							= NULL; // the pulse length before CPMG (T1 measurement
 void *h2p_t1_delay							= NULL; // the delay length before CPMG (T1 measurement)
 
 // adc addresses
-void *h2p_adc_fifo_addr									= NULL; // ADC FIFO output data address
-// void *h2p_adc_fifo_status_addr		= NULL; // ADC FIFO status address
-// void *h2p_adc_str_fifo_status_addr	= NULL; // ADC streaming FIFO status address
+void *h2p_adc_fifo_addr						= NULL; // ADC FIFO output data address
+// void *h2p_adc_fifo_status_addr			= NULL; // ADC FIFO status address
+// void *h2p_adc_str_fifo_status_addr		= NULL; // ADC streaming FIFO status address
 volatile unsigned int *h2p_adc_fifo_status_addr		= NULL; // ADC FIFO status address
 volatile unsigned int *h2p_adc_str_fifo_status_addr	= NULL; // ADC streaming FIFO status address
 void *h2p_adc_samples_per_echo_addr						= NULL; // The number of ADC capture per echo
 void *h2p_init_adc_delay_addr							= NULL; // The cycle number for delay in an echo after pulse 180 is done. The idea is to put adc capture in the middle of echo window and giving some freedom to move the ADC capture window within the echo window
+void *h2p_switches_addr						= NULL;
 
 // DMA & SDRAM
-void *h2p_dma_addr = NULL;
-void *h2p_sdram_addr = NULL;
+volatile unsigned int *h2p_dma_addr = NULL;
+volatile unsigned int *h2p_sdram_addr = NULL;
 
 
 void open_physical_memory_device();
@@ -135,6 +136,7 @@ void sweep_vbias();												// sweep the vbias
 void write_vvarac_int(int16_t dac_v_varac);						// write v_varactor with a value
 void sweep_vvarac ();											// sweep the v_varactor
 void sweep_rx_gain ();										// sweep the rx gain (FOREVER LOOP)
+void fifo_to_sdram_dma_trf (uint32_t transfer_length, uint8_t en_mesg);
 void close_system ();
 void CPMG_Sequence (
 	double cpmg_freq,
@@ -159,8 +161,8 @@ void tx_sampling(double tx_freq, double sampfreq, unsigned int samples_per_echo,
 FILE	*fptr;
 long i;
 long j;
-unsigned int rddata [150000];
-unsigned int rddata_16[150000];
+unsigned int rddata [128000];
+unsigned int rddata_16[32000000];
 char foldername[50]; // variable to store folder name of the measurement data
 char pathname[60];
 
