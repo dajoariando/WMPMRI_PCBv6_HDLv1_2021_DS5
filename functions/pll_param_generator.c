@@ -8,8 +8,9 @@
 #include "socal/socal.h"
 #include "socal/hps.h"
 #include "socal/alt_gpio.h"
-#include "../hps_soc_system.h"
 #include "pll_param_generator.h"
+
+#include "../hps_soc_system_backup(3).h"
 #include "reconfig_functions.h"
 #include "pll_calculator.h"
 

@@ -5,8 +5,8 @@
 #include <stdint.h>
 
 #include <socal/hps.h>
-#include "hps_soc_system.h"
 #include "functions/general.h"
+#include "hps_soc_system_backup(3).h"
 
 #define ALT_AXI_FPGASLVS_OFST (0xC0000000) // axi_master
 #define HW_FPGA_AXI_SPAN (0x40000000) // Bridge span
@@ -127,7 +127,6 @@ void init_default_system_param();								// initialize the system with tuned def
 void write_i2c_relay_cnt (uint8_t c_shunt, uint8_t c_series, uint8_t en_mesg);	// program the capacitance with the relay
 void write_i2c_cnt (uint32_t en, uint32_t addr_msk, uint8_t en_mesg);
 void write_i2c_rx_gain (uint8_t rx_gain);						// program the final receiver gain. 0x00 means minimum gain (not really zero gain) and 0x0F means max gain (infinite/open circuit). So effective value is 0x00 to 0x0E
-void test_dac_ad5722r();										// easy method to give number to dac
 void sweep_matching_network();									// sweep the capacitance in matching network by sweeping the relay (FOREVER LOOP)
 void write_vbias (double vbias);								// write vbias as voltage format
 void write_vvarac (double vvarac);								// write vvarac as voltage format

@@ -17,7 +17,6 @@
 #include <socal/socal.h>
 
 #include "hps_linux.h"
-#include "hps_soc_system.h"
 #include "functions/general.h"
 #include "functions/avalon_i2c.h"
 #include "functions/tca9555_driver.h"
@@ -31,6 +30,7 @@
 #include "functions/AlteraIP/altera_avalon_fifo_regs.h"
 #include "functions/nmr_table.h"
 #include "functions/avalon_dma.h"
+#include "hps_soc_system_backup(3).h"
 
 void open_physical_memory_device() {
     // We need to access the system's physical memory so we can map it to user
@@ -406,72 +406,6 @@ void sweep_matching_network() {
 	}
 };
 
-void matlab_mtching_ntwrk_cnt () {
-	uint8_t cser = 0x0;
-	uint8_t cpar = 0x0;
-
-
-	char * command = malloc(sizeof(char) * 20);
-
-	scanf("%s",command); // command is : s0010p1040e (4 number after s is the series capacitance, 4 number after p is parallel capacitance. e is the end of the line)
-	while (command[0] == 's') {
-		cser = 1000 *	(uint8_t)(command[1]-48)
-				+ 100 *	(uint8_t)(command[2]-48)
-				+ 10*	(uint8_t)(command[3]-48)
-				+ 		(uint8_t)(command[4]-48);
-		cpar = 1000 *	(uint8_t)(command[6]-48)
-				+ 100 *	(uint8_t)(command[7]-48)
-				+ 10*	(uint8_t)(command[8]-48)
-				+ 		(uint8_t)(command[9]-48);
-
-		write_i2c_relay_cnt( cpar, cser , DISABLE_MESSAGE);
-		printf("[%s]",command); // print the command
-		printf("(%d)(%d)\n",cser, cpar); // print the integer dac_varac value
-
-		scanf("%s",command);
-
-	}
-}
-
-void test_dac_ad5722r() {
-	// this is the very first working code for ad5722r.
-	// it's not gonna be the main driver for ad5722r but is saved as a backup just in case the main driver is bad.
-
-	// read the current ctrl_out
-	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
-
-	// setup the control lines for dac clear and dac ldac
-	ctrl_out = (ctrl_out & (~DAC_LDAC_en)) | DAC_CLR;
-	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out );
-
-	alt_write_word( (h2p_dac_addr + SPI_TXDATA_offst) , WR_DAC|PWR_CNT_REG|DAC_A_PU|DAC_B_PU|REF_PU );	// power up reference voltage, dac A, and dac B
-	while (!(alt_read_word (h2p_dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit)  ) );				// wait for the spi command to finish
-	alt_write_word( (h2p_dac_addr + SPI_TXDATA_offst) , WR_DAC|OUT_RANGE_SEL_REG|DAC_AB|PN50 );			// set range voltage to +/- 5.0V
-	while (!(alt_read_word(h2p_dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ) );				// wait for the spi command to finish
-
-	int16_t dac_v_var = 328 & 0xFFF;		// variable for V varactor --> DAC_A --> should be close to 5V going down to 3V-4V (start with max number = 2047, going down to 1000)
-	int16_t dac_v_bias = -1146 & 0xFFF;	// variable for V bias --> DAC_B --> should be close to 0V going down to minus (start with 0 going down to -2048)
-	alt_write_word( (h2p_dac_addr + SPI_TXDATA_offst) , WR_DAC|DAC_REG|DAC_A|(dac_v_var<<4) );			// set the dac A voltage
-	while (!(alt_read_word(h2p_dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ) );				// wait for the spi command to finish
-	alt_write_word( (h2p_dac_addr + SPI_TXDATA_offst) , WR_DAC|DAC_REG|DAC_B|(dac_v_bias<<4) );			// set the dac B voltage
-	while (!(alt_read_word(h2p_dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ) );				// wait for the spi command to finish
-
-	/* read written data
-	alt_write_word( (h2p_dac_addr + SPI_TXDATA_offst) , RD_DAC|DAC_REG|DAC_A );
-	while (!(alt_read_word(h2p_dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ) );
-	alt_write_word( (h2p_dac_addr + SPI_TXDATA_offst) , WR_DAC|CNT_REG|NOP );
-	while (!(alt_read_word(h2p_dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ) );
-	dataread = alt_read_word(h2p_dac_addr + SPI_RXDATA_offst);
-	*/
-	/* read status data
-	alt_write_word( (h2p_dac_addr + SPI_TXDATA_offst) , RD_DAC|PWR_CNT_REG );
-	while (!(alt_read_word(h2p_dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ) );
-	alt_write_word( (h2p_dac_addr + SPI_TXDATA_offst) , WR_DAC|CNT_REG|NOP );
-	while (!(alt_read_word(h2p_dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ) );
-	statusread =  alt_read_word( (h2p_dac_addr + SPI_RXDATA_offst) );
-	*/
-}
-
 void init_dac_ad5722r () {
 	// read the current ctrl_out
 	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
@@ -680,62 +614,6 @@ void sweep_vbias (){
 	}
 }
 
-void matlab_vbias_cnt () {
-	double dac_v_bias = 0;
-	int i = 0;
-	double dot_pos = 10; // put the initial dot_pos to the maximum one, in case the dot is not found, it means we don't have to do the division
-
-
-	// the command starts with 'c' to continue (followed by +/-, float numbers in ascii representation, and v as voltage), or 's' to stop
-	// for example: c+1.23v
-	char * command = malloc(sizeof(char) * 20);
-
-	scanf("%s",command);
-	while (command[0] == 'c') {
-		dac_v_bias = 0;
-		dot_pos = 10;
-
-		for (i = 2; command[i]!='v'; i++ ) {
-			if (command[i] == '.') {
-				dot_pos = i;
-			}
-			else {
-				dac_v_bias *= 10;
-				dac_v_bias += (double)(command[i]-48); //convert the ascii to number
-			}
-		}
-
-		// divide by (10^total_numbers_after_dot)
-		for (; i>(dot_pos+1); i--) {
-			dac_v_bias /= 10;
-		}
-
-		if (command[1] == '-') {
-			dac_v_bias = -dac_v_bias;
-		}
-
-		// convert to -2048, 2047 scale
-		dac_v_bias = (dac_v_bias*2048)/5;
-		if (dac_v_bias >= 2048) {
-			dac_v_bias = 2047;
-		}
-		if (dac_v_bias < -2048 ) {
-			dac_v_bias = -2048;
-		}
-
-
-
-
-		write_vbias_int( (int16_t)dac_v_bias );
-		printf("[%s]",command); // print the voltage
-		printf("data: %f",(float)dac_v_bias/2048*5); // print the voltage
-		printf("(%d)\n",(int)dac_v_bias); // print the integer dac_varac value
-
-		scanf("%s",command);
-
-	}
-}
-
 void sweep_vvarac () {
 	int16_t dac_v_varac = -450;
 	int16_t init_varac_val = 2047;
@@ -762,62 +640,6 @@ void sweep_vvarac () {
 			dac_v_varac = init_varac_val;
 		}
 		usleep(1000000);
-	}
-}
-
-void matlab_vvarac_cnt () {
-	double dac_v_varac = 0;
-	int i = 0;
-	double dot_pos = 10; // put the initial dot_pos to the maximum one, in case the dot is not found, it means we don't have to do the division
-
-
-	// the command starts with 'c' to continue (followed by +/-, float numbers in ascii representation, and v as voltage), or 's' to stop
-	// for example: c+1.23v
-	char * command = malloc(sizeof(char) * 20);
-
-	scanf("%s",command);
-	while (command[0] == 'c') {
-		dac_v_varac = 0;
-		dot_pos = 10;
-
-		for (i = 2; command[i]!='v'; i++ ) {
-			if (command[i] == '.') {
-				dot_pos = i;
-			}
-			else {
-				dac_v_varac *= 10;
-				dac_v_varac += (double)(command[i]-48); //convert the ascii to number
-			}
-		}
-
-		// divide by (10^total_numbers_after_dot)
-		for (; i>(dot_pos+1); i--) {
-			dac_v_varac /= 10;
-		}
-
-		if (command[1] == '-') {
-			dac_v_varac = -dac_v_varac;
-		}
-
-		// convert to -2048, 2047 scale
-		dac_v_varac = (dac_v_varac*2048)/5;
-		if (dac_v_varac >= 2048) {
-			dac_v_varac = 2047;
-		}
-		if (dac_v_varac < -2048 ) {
-			dac_v_varac = -2048;
-		}
-
-
-
-
-		write_vvarac_int( (int16_t)dac_v_varac );
-		printf("[%s]",command); // print the voltage
-		printf("data: %f",(float)dac_v_varac/2048*5); // print the voltage
-		printf("(%d)\n",(int)dac_v_varac); // print the integer dac_varac value
-
-		scanf("%s",command);
-
 	}
 }
 
@@ -929,6 +751,8 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 	double adc_ltc1746_freq = cpmg_freq*4;
 	double nmr_fsm_clkfreq = cpmg_freq*16;
 
+	double init_delay_inherent = 2.25; // inherehent delay factor from the HDL structure, in ADC clock cycles
+
 	uint8_t read_with_dma = 1; // else the program reads data directly from the fifo
 
 	usleep(scan_spacing_us);
@@ -967,11 +791,11 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 		printf("\tDelay 1\t\t\t: %7.3f us (%d)\n", (double)cpmg_param[DELAY1_OFFST]/nmr_fsm_clkfreq, cpmg_param[DELAY1_OFFST]);
 		printf("\tPulse 2\t\t\t: %7.3f us (%d)\n", (double)cpmg_param[PULSE2_OFFST]/nmr_fsm_clkfreq, cpmg_param[PULSE2_OFFST]);
 		printf("\tDelay 2\t\t\t: %7.3f us (%d)\n", (double)cpmg_param[DELAY2_OFFST]/nmr_fsm_clkfreq, cpmg_param[DELAY2_OFFST]);
-		printf("\tADC init delay\t: %7.3f us (%d)\n", (double)cpmg_param[INIT_DELAY_ADC_OFFST]/adc_ltc1746_freq, cpmg_param[INIT_DELAY_ADC_OFFST]);
+		printf("\tADC init delay\t: %7.3f us (%d) -not-precise\n", ((double)cpmg_param[INIT_DELAY_ADC_OFFST]+init_delay_inherent)/adc_ltc1746_freq, cpmg_param[INIT_DELAY_ADC_OFFST]);
 		printf("\tADC acq window\t: %7.3f us (%d)\n", ((double)samples_per_echo)/adc_ltc1746_freq, samples_per_echo);
 	}
-	if (cpmg_param[INIT_DELAY_ADC_OFFST] == 0) {
-		printf("\tWARNING: ADC init delay is 0!");
+	if (cpmg_param[INIT_DELAY_ADC_OFFST] < 2) {
+		printf("\tWARNING: Computed ADC_init_delay is less than 2, ADC_init_delay is force driven to 2 inside the HDL!");
 	}
 
 	// set pll for CPMG
@@ -1092,6 +916,146 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 	}
 	for (i=0; i<samples_per_echo; i++) {
 		fprintf(fptr, "%d\n", avr_data[i]);
+	}
+	fclose(fptr);
+
+
+
+}
+
+void FID (double cpmg_freq, double pulse2_us, double pulse2_dtcl, long unsigned scan_spacing_us, unsigned int samples_per_echo, char * filename, uint32_t enable_message) {
+	double adc_ltc1746_freq = cpmg_freq*4;
+	double nmr_fsm_clkfreq = cpmg_freq*16;
+	uint8_t read_with_dma = 1; // else the program reads data directly from the fifo
+
+	usleep(scan_spacing_us);
+
+	// read the current ctrl_out
+	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
+
+	// local variables
+	uint32_t fifo_mem_level; // the fill level of fifo memory
+
+	unsigned int pulse2_int = (unsigned int)(round(pulse2_us * nmr_fsm_clkfreq));	// the number of 180 deg pulse in the multiplication of cpmg pulse period (discrete value, no continuous number supported)
+	unsigned int delay2_int = (unsigned int) (samples_per_echo*(nmr_fsm_clkfreq/adc_ltc1746_freq)*2);	// the number of delay after 180 deg pulse. It is simply samples_per_echo multiplied by (nmr_fsm_clkfreq/adc_ltc1746_freq) factor, as the delay2_int is counted by nmr_fsm_clkfreq, not by adc_ltc1746_freq. It is also multiplied by a constant 2 as safety factor to make sure the ADC acquisition is inside FSMSTAT (refer to HDL) 'on' window.
+	unsigned int fixed_init_adc_delay = 2; // set to the minimum delay values, which is 2 (limited by HDL structure).
+	unsigned int fixed_echo_per_scan = 1; // it must be 1, otherwise the HDL will go to undefined state.
+	double init_delay_inherent; // inherehent delay factor from the HDL structure. The minimum is 2.25 no matter how small the delay is set. Look ERRATA
+	if (fixed_init_adc_delay <= 2) {
+		init_delay_inherent = 2.25;
+	}
+	else { // if fixed_init_adc_delay is more than 2
+		init_delay_inherent = (double) fixed_init_adc_delay + 0.25; // look at ERRATA from the HDL to get 0.25
+	}
+
+	alt_write_word( (h2p_pulse1_addr) , 0 );
+	alt_write_word( (h2p_delay1_addr) , 0 );
+	alt_write_word( (h2p_pulse2_addr) , pulse2_int );
+	alt_write_word( (h2p_delay2_addr) , delay2_int );
+	alt_write_word( (h2p_init_adc_delay_addr) , fixed_init_adc_delay );
+	alt_write_word( (h2p_echo_per_scan_addr) , fixed_echo_per_scan );
+	alt_write_word( (h2p_adc_samples_per_echo_addr) , samples_per_echo );
+
+	if (enable_message) {
+		printf("CPMG Sequence Actual Parameter:\n");
+		printf("\tPulse 2\t\t\t: %7.3f us (%d)\n", (double)pulse2_int/nmr_fsm_clkfreq, pulse2_int);
+		printf("\tDelay 2\t\t\t: %7.3f us (%d)\n", (double)delay2_int/nmr_fsm_clkfreq, delay2_int);
+		printf("\tADC init delay\t: %7.3f us (%d) --imprecise\n", init_delay_inherent/adc_ltc1746_freq, fixed_init_adc_delay );
+		printf("\tADC acq window\t: %7.3f us (%d)\n", ((double)samples_per_echo)/adc_ltc1746_freq, samples_per_echo);
+	}
+	if (fixed_init_adc_delay < 2) {
+		printf("\tWARNING: Computed ADC_init_delay is less than 2, ADC_init_delay is force driven to 2 inside the HDL!");
+	}
+
+	// set pll for CPMG system
+	Set_PLL (h2p_nmr_sys_pll_addr, 0, nmr_fsm_clkfreq, 0.5, DISABLE_MESSAGE);	// set pll frequency
+	Reset_PLL (h2p_ctrl_out_addr, PLL_NMR_SYS_RST_ofst, ctrl_out);				// reset pll, changes the phase
+	Set_DPS (h2p_nmr_sys_pll_addr, 0, 0, DISABLE_MESSAGE); 						// set pll phase to 0 (might not be needed)
+	Wait_PLL_To_Lock (h2p_ctrl_in_addr, PLL_NMR_SYS_lock_ofst);					// wait for pll to lock
+
+	// set a fix phase cycle state
+	ctrl_out &= ~(0x01<<PHASE_CYCLING_ofst);
+	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out );
+	usleep(10);
+
+	// reset the selected ADC (the ADC reset was omitted)
+	// alt_write_word( (h2p_ctrl_out_addr) , ctrl_out | (0x01<<ADC_LTC1746_RST_ofst) );
+	// usleep(10);
+	// alt_write_word( (h2p_ctrl_out_addr) , ctrl_out & ~(0x01<<ADC_LTC1746_RST_ofst) );
+	// usleep(10);
+
+
+	// reset ADC buffer
+	ctrl_out |= (0x01<<ADC_FIFO_RST_ofst);
+	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out );
+	usleep(10);
+	ctrl_out &= ~(0x01<<ADC_FIFO_RST_ofst);
+	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out );
+	usleep(10);
+
+	// start fsm
+	// it will reset the pll as well, so it's important to set the phase
+	// the pll_rst_dly should be longer than the delay coming from changing the phase
+	// otherwise, the fsm will start with wrong relationship between 4 pll output clocks (1/2 pi difference between clock)
+	// alt_write_word( (h2p_nmr_pll_rst_dly_addr) , 1000000 );	// set the amount of delay for pll reset (with 50MHz system clock, every tick means 20ns) -> default: 100000
+	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
+	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out | (0x01<<FSM_START_ofst) );
+	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out & ~(0x01<<FSM_START_ofst) );
+	// shift the pll phase accordingly
+	// Set_DPS (h2p_nmr_pll_addr, 0, 0, DISABLE_MESSAGE);
+	// Set_DPS (h2p_nmr_pll_addr, 1, 90, DISABLE_MESSAGE);
+	// Set_DPS (h2p_nmr_pll_addr, 2, 180, DISABLE_MESSAGE);
+	// Set_DPS (h2p_nmr_pll_addr, 3, 270, DISABLE_MESSAGE);
+	// usleep(scan_spacing_us);
+
+	if (read_with_dma) { // if read with dma is intended
+		fifo_to_sdram_dma_trf(samples_per_echo,DISABLE_MESSAGE);
+	}
+	else { // if read from fifo is intended
+		// wait until fsm stops
+		while ( alt_read_word(h2p_ctrl_in_addr) & (0x01<<NMR_SEQ_run_ofst) );
+		usleep(300);
+
+		// PRINT # of DATAS in FIFO
+		// fifo_mem_level = alt_read_word(h2p_adc_fifo_status_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
+		// printf("num of data in fifo: %d\n",fifo_mem_level);
+
+		// READING DATA FROM FIFO
+		fifo_mem_level = alt_read_word(h2p_adc_fifo_status_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
+		for (i=0; fifo_mem_level>0; i++) {			// FIFO is 32-bit, while 1-sample is only 16-bit. FIFO organize this automatically. So, fetch only amount_of_data shifted by 2 to get amount_of_data/2.
+			rddata[i] = alt_read_word(h2p_adc_fifo_addr);
+
+			fifo_mem_level--;
+			if (fifo_mem_level == 0) {
+				fifo_mem_level = alt_read_word(h2p_adc_fifo_status_addr+ALTERA_AVALON_FIFO_LEVEL_REG);
+			}
+			//usleep(1);
+		}
+		usleep(100);
+
+		if (i*2 == samples_per_echo) { // if the amount of data captured matched with the amount of data being ordered, then continue the process. if not, then don't process the datas (requesting empty data from the fifo will cause the FPGA to crash, so this one is to avoid that)
+			// printf("number of captured data vs requested data : MATCHED\n");
+
+			j=0;
+			for(i=0; i < ( ((long)samples_per_echo)>>1 ); i++) {
+				rddata_16[j++] = (rddata[i] & 0x3FFF);		// 14 significant bit
+				rddata_16[j++] = ((rddata[i]>>16)&0x3FFF);	// 14 significant bit
+			}
+
+		}
+		else { // if the amount of data captured didn't match the amount of data being ordered, then something's going on with the acquisition
+			printf("[ERROR] number of data captured (%ld) and data ordered (%d): NOT MATCHED\nData are flushed!\nReconfigure the FPGA immediately\n", i*2, samples_per_echo);
+		}
+	}
+
+	// write the raw data from adc to a file
+	sprintf(pathname,"%s/%s",foldername,filename);	// put the data into the data folder
+	fptr = fopen(pathname, "w");
+	if (fptr == NULL) {
+		printf("File does not exists \n");
+	}
+	for(i=0; i < ( ((long)samples_per_echo) ); i++) {
+		fprintf(fptr, "%d\n", rddata_16[i]);
 	}
 	fclose(fptr);
 
@@ -1414,6 +1378,97 @@ void CPMG_iterate (
 
 }
 
+void FID_iterate (
+	double cpmg_freq,
+	double pulse2_us,
+	double pulse2_dtcl,
+	long unsigned scan_spacing_us,
+	unsigned int samples_per_echo,
+	unsigned int number_of_iteration,
+	uint32_t enable_message
+){
+	double nmr_fsm_clkfreq = 16*cpmg_freq;
+	double adc_ltc1746_freq = 4*cpmg_freq;
+
+	unsigned int fixed_init_adc_delay = 2; // set to the minimum delay values, which is 2 (limited by HDL structure).
+	double init_delay_inherent; // inherehent delay factor from the HDL structure. The minimum is 2.25 no matter how small the delay is set. Look ERRATA
+	if (fixed_init_adc_delay <= 2) {
+		init_delay_inherent = 2.25;
+	}
+	else { // if fixed_init_adc_delay is more than 2
+		init_delay_inherent = (double) fixed_init_adc_delay + 0.25; // look at ERRATA from the HDL to get 0.25
+	}
+
+	double init_adc_delay_compensation = init_delay_inherent /adc_ltc1746_freq;
+	unsigned int pulse2_int = (unsigned int)(round(pulse2_us * nmr_fsm_clkfreq));	// the number of 180 deg pulse in the multiplication of cpmg pulse period (discrete value, no continuous number supported)
+	unsigned int delay2_int = (unsigned int) (samples_per_echo*(nmr_fsm_clkfreq/adc_ltc1746_freq)*2);	// the number of delay after 180 deg pulse. It is simply samples_per_echo multiplied by (nmr_fsm_clkfreq/adc_ltc1746_freq) factor, as the delay2_int is counted by nmr_fsm_clkfreq, not by adc_ltc1746_freq. It is also multiplied by a constant 2 as safety factor to make sure the ADC acquisition is inside FSMSTAT (refer to HDL) 'on' window.
+
+	// read the current ctrl_out
+	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
+
+	create_measurement_folder("fid");
+	printf("Approximated measurement time : %.2f mins\n",( scan_spacing_us*(double)number_of_iteration)*1e-6/60);
+
+	// print general measurement settings
+	sprintf(pathname,"%s/acqu.par",foldername);
+	fptr = fopen(pathname, "a");
+	fprintf(fptr,"b1Freq = %4.3f\n", cpmg_freq);
+	fprintf(fptr,"p180LengthGiven = %4.3f\n", pulse2_us);
+	fprintf(fptr,"p180LengthRun = %4.3f\n", (double)pulse2_int/nmr_fsm_clkfreq);
+	fprintf(fptr,"p180LengthCnt =  %d @ %4.3f MHz\n", pulse2_int,nmr_fsm_clkfreq);
+	fprintf(fptr,"d180LengthRun = %4.3f\n", (double)delay2_int/nmr_fsm_clkfreq);
+	fprintf(fptr,"d180LengthCnt = %d @ %4.3f MHz\n", delay2_int,nmr_fsm_clkfreq);
+	//fprintf(fptr,"p90_dtcl = %4.3f\n", pulse1_dtcl);
+	//fprintf(fptr,"p180_dtcl = %4.3f\n", pulse2_dtcl);
+	fprintf(fptr,"ieTime = %lu\n", scan_spacing_us/1000);
+	fprintf(fptr,"nrPnts = %d\n", samples_per_echo);
+	fprintf(fptr,"echoShift = %4.3f --imprecise\n", init_adc_delay_compensation);
+	fprintf(fptr,"nrIterations = %d\n", number_of_iteration);
+	fprintf(fptr,"dummyEchoes = 0\n");
+	fprintf(fptr,"adcFreq = %4.3f\n", adc_ltc1746_freq);
+	fprintf(fptr,"dwellTime = %4.3f\n", 1/adc_ltc1746_freq);
+	fclose(fptr);
+
+	// print matlab script to analyze datas
+	sprintf(pathname,"measurement_history_matlab_script.txt");
+	fptr = fopen(pathname, "a");
+	fprintf(fptr,"fid_iterate([data_folder,'%s']);\n",foldername);
+	fclose(fptr);
+
+	// print matlab script to analyze datas
+	sprintf(pathname,"current_folder.txt");
+	fptr = fopen(pathname, "w");
+	fprintf(fptr,"%s\n",foldername);
+	fclose(fptr);
+
+
+
+	int FILENAME_LENGTH = 100;
+	char *name;
+	name = (char*) malloc (FILENAME_LENGTH*sizeof(char));
+
+	int iterate = 1;
+	for (iterate=1; iterate<=number_of_iteration; iterate++) {
+		// printf("\n*** RUN %d ***\n",iterate);
+
+		snprintf(name, FILENAME_LENGTH,"dat_%03d",iterate);
+
+		FID (
+			cpmg_freq,						//cpmg_freq
+			pulse2_us,						//pulse2_us
+			pulse2_dtcl,					//pulse2_dtcl
+			scan_spacing_us,				//scan_spacing_us
+			samples_per_echo,				//samples_per_echo
+			name,							//filename for data
+			DISABLE_MESSAGE
+		);
+
+	}
+
+	free(name);
+
+}
+
 void tune_board (double freq) {
 	//double c_idx;
 	//c_idx = (freq-mtch_ntwrk_freq_sta)/mtch_ntwrk_freq_spa;	// find index for C
@@ -1434,852 +1489,6 @@ void tune_board (double freq) {
 	write_vbias(-1.25);															// minimum S11 value also max gain (32dB) : -1.25V
 	//usleep(1000000);															// wait for the v_varac & v_bias to settle down
 	usleep(10000);															// wait for the v_varac & v_bias to settle down
-}
-
-void CPMG_freq_sweep (
-	double cpmg_freq_start,
-	double cpmg_freq_stop,
-	double cpmg_freq_spacing,
-	double pulse1_us,
-	double pulse2_us,
-	double pulse1_dtcl,
-	double pulse2_dtcl,
-	double echo_spacing_us,
-	long unsigned scan_spacing_us,
-	unsigned int samples_per_echo,
-	unsigned int echoes_per_scan,
-	double init_adc_delay_compensation,
-	unsigned int number_of_iteration,
-	uint32_t ph_cycl_en
-){
-
-	double adc_ltc1746_freq;
-	double nmr_fsm_clkfreq;
-	double cpmg_freq = 0;
-
-	create_measurement_folder("nmr_freqsweep");
-	printf("Approximated measurement time : %.2f mins\n",( (cpmg_freq_stop-cpmg_freq_start)/cpmg_freq_spacing*scan_spacing_us*(double)number_of_iteration) *1e-6/60);
-
-	// print matlab script to analyze datas
-	sprintf(pathname,"measurement_history_matlab_script.txt");
-	fptr = fopen(pathname, "a");
-	fprintf(fptr,"compute_freqsw([data_folder,'%s'],0);\n",foldername);
-	fclose(fptr);
-
-	// print general measurement settings
-	sprintf(pathname,"%s/acqu.par",foldername);
-	fptr = fopen(pathname, "a");
-	fprintf(fptr,"b1Freq_sta = %4.3f\n", cpmg_freq_start);
-	fprintf(fptr,"b1Freq_sto = %4.3f\n", cpmg_freq_stop);
-	fprintf(fptr,"b1Freq_spa = %4.3f\n", cpmg_freq_spacing);
-	fprintf(fptr,"p90LengthGiven = %4.3f\n", pulse1_us);
-	fprintf(fptr,"p180LengthGiven = %4.3f\n", pulse2_us);
-	//fprintf(fptr,"p90_dtcl = %4.3f\n", pulse1_dtcl);
-	//fprintf(fptr,"p180_dtcl = %4.3f\n", pulse2_dtcl);
-	fprintf(fptr,"echoTimeRun = ");
-	unsigned int cpmg_param [5];
-	cpmg_freq_stop = cpmg_freq_stop + 0.1*cpmg_freq_spacing; // multiply with 0.1 to fix floating point issues
-	for (cpmg_freq=cpmg_freq_start; cpmg_freq<=cpmg_freq_stop; cpmg_freq+=cpmg_freq_spacing) {
-		adc_ltc1746_freq = cpmg_freq*4;
-		nmr_fsm_clkfreq = cpmg_freq*16;
-		cpmg_param_calculator_ltc1746(cpmg_param, nmr_fsm_clkfreq, cpmg_freq, adc_ltc1746_freq, init_adc_delay_compensation, pulse1_us, pulse2_us, echo_spacing_us, samples_per_echo);
-		fprintf(fptr,"%4.3f ", (double)(cpmg_param[PULSE2_OFFST]+cpmg_param[DELAY2_OFFST]) / nmr_fsm_clkfreq );
-	}
-	fprintf(fptr,"\n");
-	fprintf(fptr,"echoTimeGiven = %4.3f\n", echo_spacing_us);
-	fprintf(fptr,"ieTime = %lu\n", scan_spacing_us/1000);
-	fprintf(fptr,"nrPnts = %d\n", samples_per_echo);
-	fprintf(fptr,"nrEchoes = %d\n", echoes_per_scan);
-	fprintf(fptr,"echoShift = %4.3f\n", init_adc_delay_compensation);
-	fprintf(fptr,"nrIterations = %d\n", number_of_iteration);
-	fprintf(fptr,"dummyEchoes = 0\n");
-	fprintf(fptr,"usePhaseCycle = %d\n",ph_cycl_en);
-	fclose(fptr);
-
-
-	int FILENAME_LENGTH = 100;
-	char *name;
-	name = (char*) malloc (FILENAME_LENGTH*sizeof(char));
-	char *nameavg;
-	nameavg = (char*) malloc (FILENAME_LENGTH*sizeof(char));
-	unsigned int iterate;
-	for (cpmg_freq=cpmg_freq_start; cpmg_freq<=cpmg_freq_stop; cpmg_freq+=cpmg_freq_spacing) {
-		// tune_board (cpmg_freq);
-
-		// round number (very important!). It works well by dividing with (1/0.001) instead of multiplying with 1000. Not sure why
-		cpmg_freq = round(cpmg_freq * (1/0.001)) / (1/0.001);
-
-		for (iterate = 1; iterate <= number_of_iteration; iterate++) {
-			snprintf(name, FILENAME_LENGTH,"dat_%06.3f_%03d",cpmg_freq,iterate);
-			snprintf(nameavg, FILENAME_LENGTH,"avg_%06.3f_%03d",cpmg_freq,iterate);
-
-			CPMG_Sequence (
-				(double)cpmg_freq,				//cpmg_freq
-				(double)pulse1_us,				//pulse1_us
-				(double)pulse2_us,				//pulse2_us
-				(double)pulse1_dtcl,			//pulse1_dtcl
-				(double)pulse2_dtcl,			//pulse2_dtcl
-				(double)echo_spacing_us,		//echo_spacing_us
-				scan_spacing_us,				//scan_spacing_us
-				samples_per_echo,				//samples_per_echo
-				echoes_per_scan,				//echoes_per_scan
-				init_adc_delay_compensation,	//compensation delay number (counted by the adc base clock)
-				ph_cycl_en,						//phase cycle enable/disable
-				name,							//filename for data
-				nameavg,						//filename for average data
-				ENABLE_MESSAGE
-			);
-		}
-	}
-
-	free(name);
-	free(nameavg);
-
-}
-
-void CPMG_amp_dt_sweep (
-	double pulse_dtcl_start,
-	double pulse_dtcl_stop,
-	double pulse_dtcl_spacing,
-	double cpmg_freq,
-	double pulse1_us,
-	double pulse2_us,
-	// double pulse2_dtcl,
-	double echo_spacing_us,
-	long unsigned scan_spacing_us,
-	unsigned int samples_per_echo,
-	unsigned int echoes_per_scan,
-	double init_adc_delay_compensation,
-	unsigned int number_of_iteration,
-	uint32_t ph_cycl_en
-){
-
-	create_measurement_folder("nmr_amp_dt1_sweep");
-
-	// print general measurement settings
-	sprintf(pathname,"%s/CPMG_amp_dt1_sweep_settings.txt",foldername);
-	fptr = fopen(pathname, "a");
-	fprintf(fptr,"cpmg_freq:\t%f\n", cpmg_freq);
-	fprintf(fptr,"pulse1_us:\t%f\n", pulse1_us);
-	fprintf(fptr,"pulse2_us:\t%f\n", pulse2_us);
-	fprintf(fptr,"pulse1_dtcl_start:\t%f\n", pulse_dtcl_start);
-	fprintf(fptr,"pulse1_dtcl_stop:\t%f\n", pulse_dtcl_stop);
-	fprintf(fptr,"pulse1_dtcl_spacing:\t%f\n", pulse_dtcl_spacing);
-	// fprintf(fptr,"pulse2_dtcl:\t%f\n", pulse2_dtcl);
-	fprintf(fptr,"echo_spacing_us:\t%f\n", echo_spacing_us);
-	fprintf(fptr,"scan_spacing_us:\t%lu\n", scan_spacing_us);
-	fprintf(fptr,"samples_per_echo:\t%d\n", samples_per_echo);
-	fprintf(fptr,"echoes_per_scan:\t%d\n", echoes_per_scan);
-	fprintf(fptr,"init_adc_delay_compensation:\t%f\n", init_adc_delay_compensation);
-	if (ph_cycl_en == ENABLE) {
-		fprintf(fptr,"phase_cycling:\tyes\n");
-	}
-	else {
-		fprintf(fptr,"phase_cycling:\tno\n");
-	}
-	fclose(fptr);
-
-	// print matlab script to analyze datas
-	sprintf(pathname,"measurement_history_matlab_script.txt");
-	fptr = fopen(pathname, "a");
-	fprintf(fptr,"compute_dt1sw([data_folder,'%s'],%d,0);\n",foldername,number_of_iteration);
-	fclose(fptr);
-
-	// print the NMR frequency sweep settings
-	sprintf(pathname,"%s/dt1_sweep.txt",foldername);	// put the data into the data folder
-	fptr = fopen(pathname, "a");
-	fprintf(fptr,"%f\n",pulse_dtcl_start);
-	fprintf(fptr,"%f\n",pulse_dtcl_stop);
-	fprintf(fptr,"%f\n",pulse_dtcl_spacing);
-	fclose(fptr);
-
-	double pulse_dtcl = 0;
-	int FILENAME_LENGTH = 100;
-	char *name;
-	name = (char*) malloc (FILENAME_LENGTH*sizeof(char));
-	char *nameavg;
-	nameavg = (char*) malloc (FILENAME_LENGTH*sizeof(char));
-	unsigned int iterate;
-
-	for (pulse_dtcl=pulse_dtcl_start; pulse_dtcl<=pulse_dtcl_stop; pulse_dtcl+=pulse_dtcl_spacing) {
-		printf("\n*** current pulse_dtcl %f ***\n",pulse_dtcl);
-
-		for (iterate = 1; iterate <= number_of_iteration; iterate++) {
-
-			snprintf(name, FILENAME_LENGTH,"dat_%03.3f_%03d",pulse_dtcl,iterate);
-			snprintf(nameavg, FILENAME_LENGTH,"avg_%03.3f_%03d",pulse_dtcl,iterate);
-			CPMG_Sequence (
-				(double)cpmg_freq,				//cpmg_freq
-				(double)pulse1_us,				//pulse1_us
-				(double)pulse2_us,				//pulse2_us
-				(double)pulse_dtcl,				//pulse1_dtcl
-				(double)pulse_dtcl,				//pulse2_dtcl
-				(double)echo_spacing_us,		//echo_spacing_us
-				scan_spacing_us,				//scan_spacing_us
-				samples_per_echo,				//samples_per_echo
-				echoes_per_scan,				//echoes_per_scan
-				init_adc_delay_compensation,	//compensation delay number (counted by the adc base clock)
-				ph_cycl_en,						//phase cycle enable/disable
-				name,							//filename for data
-				nameavg,						//filename for average data
-				DISABLE_MESSAGE
-			);
-		}
-
-	}
-
-	free(name);
-	free(nameavg);
-}
-
-void CPMG_amp_pulse1_length_sweep (
-	double pulse1_us_start,
-	double pulse1_us_stop,
-	double pulse1_us_spacing,
-	double cpmg_freq,
-	double pulse1_dtcl,
-	double pulse2_us,
-	double pulse2_dtcl,
-	double echo_spacing_us,
-	long unsigned scan_spacing_us,
-	unsigned int samples_per_echo,
-	unsigned int echoes_per_scan,
-	double init_adc_delay_compensation,
-	unsigned int number_of_iteration,
-	uint32_t ph_cycl_en
-){
-	double nmr_fsm_clkfreq = 16*cpmg_freq;
-	double adc_ltc1746_freq = 4*cpmg_freq;
-	double pulse1_us;
-
-	create_measurement_folder("nmr_amp_pulse1_length_sweep");
-	printf("Approximated measurement time : %.2f mins\n",( (pulse1_us_stop-pulse1_us_start)/pulse1_us_spacing*scan_spacing_us*(double)number_of_iteration) *1e-6/60);
-
-	// print matlab script to analyze datas
-	sprintf(pathname,"measurement_history_matlab_script.txt");
-	fptr = fopen(pathname, "a");
-	fprintf(fptr,"compute_p1lsw([data_folder,'%s'],0);\n",foldername);
-	fclose(fptr);
-
-	// print general measurement settings
-	sprintf(pathname,"%s/acqu.par",foldername);
-	fptr = fopen(pathname, "a");
-	fprintf(fptr,"b1Freq = %4.3f\n", cpmg_freq);
-	fprintf(fptr,"p90LengthGiven_sta = %4.3f\n", pulse1_us_start);
-	fprintf(fptr,"p90LengthGiven_sto = %4.3f\n", pulse1_us_stop);
-	fprintf(fptr,"p90LengthGiven_spa = %4.3f\n", pulse1_us_spacing);
-	fprintf(fptr,"echoTimeRun = ");
-	unsigned int cpmg_param [5];
-	for (pulse1_us=pulse1_us_start; pulse1_us<=pulse1_us_stop; pulse1_us+=pulse1_us_spacing) {
-		cpmg_param_calculator_ltc1746(cpmg_param,nmr_fsm_clkfreq,cpmg_freq,adc_ltc1746_freq,init_adc_delay_compensation,pulse1_us,pulse2_us,echo_spacing_us,samples_per_echo);
-		fprintf(fptr,"%4.3f ", (double)(cpmg_param[PULSE2_OFFST]+cpmg_param[DELAY2_OFFST]) / nmr_fsm_clkfreq );
-	}
-	fprintf(fptr,"\n");
-	fprintf(fptr,"p180LengthGiven = %4.3f\n", pulse2_us);
-	fprintf(fptr,"p180Length = %4.3f\n", (double)cpmg_param[PULSE2_OFFST]/nmr_fsm_clkfreq);
-	fprintf(fptr,"p180LengthCnt =  %d @ %4.3f MHz\n", cpmg_param[PULSE2_OFFST],nmr_fsm_clkfreq);
-	fprintf(fptr,"d180Length = %4.3f\n", (double)cpmg_param[DELAY2_OFFST]/nmr_fsm_clkfreq);
-	fprintf(fptr,"d180LengthCnt = %d @ %4.3f MHz\n", cpmg_param[DELAY2_OFFST],nmr_fsm_clkfreq);
-	//fprintf(fptr,"p90_dtcl = %4.3f\n", pulse1_dtcl);
-	//fprintf(fptr,"p180_dtcl = %4.3f\n", pulse2_dtcl);
-	fprintf(fptr,"echoTimeGiven = %4.3f\n", echo_spacing_us);
-	fprintf(fptr,"ieTime = %lu\n", scan_spacing_us/1000);
-	fprintf(fptr,"nrPnts = %d\n", samples_per_echo);
-	fprintf(fptr,"nrEchoes = %d\n", echoes_per_scan);
-	fprintf(fptr,"echoShift = %4.3f\n", init_adc_delay_compensation);
-	fprintf(fptr,"nrIterations = %d\n", number_of_iteration);
-	fprintf(fptr,"dummyEchoes = 0\n");
-	fprintf(fptr,"adcFreq = %4.3f\n", adc_ltc1746_freq);
-	fprintf(fptr,"dwellTime = %4.3f\n", 1/adc_ltc1746_freq);
-	fprintf(fptr,"usePhaseCycle = %d\n", ph_cycl_en);
-	fclose(fptr);
-
-	int FILENAME_LENGTH = 100;
-	char *name;
-	name = (char*) malloc (FILENAME_LENGTH*sizeof(char));
-	char *nameavg;
-	nameavg = (char*) malloc (FILENAME_LENGTH*sizeof(char));
-	unsigned int iterate;
-
-	pulse1_us_stop = pulse1_us_stop + 0.1*pulse1_us_spacing; // multiply with 0.1 to fix floating point issues
-	for (pulse1_us=pulse1_us_start; pulse1_us<=pulse1_us_stop; pulse1_us+=pulse1_us_spacing) {
-		cpmg_param_calculator_ltc1746(cpmg_param,nmr_fsm_clkfreq,cpmg_freq,adc_ltc1746_freq,init_adc_delay_compensation,pulse1_us,pulse2_us,echo_spacing_us,samples_per_echo);
-		printf("* current pulse1_us %4.2f (%d)*\n",pulse1_us,cpmg_param[PULSE1_OFFST]);
-
-		for (iterate = 1; iterate <= number_of_iteration; iterate++) {
-
-			snprintf(name, FILENAME_LENGTH,"dat_%05.3f_%03d",pulse1_us,iterate);
-			snprintf(nameavg, FILENAME_LENGTH,"avg_%05.3f_%03d",pulse1_us,iterate);
-
-			CPMG_Sequence (
-				(double)cpmg_freq,				//cpmg_freq
-				(double)pulse1_us,				//pulse1_us
-				(double)pulse2_us,				//pulse2_us
-				(double)pulse1_dtcl,			//pulse1_dtcl
-				(double)pulse2_dtcl,			//pulse2_dtcl
-				(double)echo_spacing_us,		//echo_spacing_us
-				scan_spacing_us,				//scan_spacing_us
-				samples_per_echo,				//samples_per_echo
-				echoes_per_scan,				//echoes_per_scan
-				init_adc_delay_compensation,	//compensation delay number (counted by the adc base clock)
-				ph_cycl_en,						//phase cycle enable/disable
-				name,							//filename for data
-				nameavg,						//filename for average data
-				DISABLE_MESSAGE
-			);
-
-		}
-
-	}
-
-	free(name);
-	free(nameavg);
-
-}
-
-void CPMG_amp_pulse2_length_sweep (
-	double pulse2_us_start,
-	double pulse2_us_stop,
-	double pulse2_us_spacing,
-	double cpmg_freq,
-	double pulse1_us,
-	double pulse1_dtcl,
-	double pulse2_dtcl,
-	double echo_spacing_us,
-	long unsigned scan_spacing_us,
-	unsigned int samples_per_echo,
-	unsigned int echoes_per_scan,
-	double init_adc_delay_compensation,
-	unsigned int number_of_iteration,
-	uint32_t ph_cycl_en
-){
-
-	double nmr_fsm_clkfreq = 16*cpmg_freq;
-	double adc_ltc1746_freq = 4*cpmg_freq;
-	double pulse2_us;
-
-	create_measurement_folder("nmr_amp_pulse2_length_sweep");
-	printf("Approximated measurement time : %.2f mins\n",( (pulse2_us_stop-pulse2_us_start)/pulse2_us_spacing*scan_spacing_us*(double)number_of_iteration) *1e-6/60);
-
-	// print matlab script to analyze datas
-	sprintf(pathname,"measurement_history_matlab_script.txt");
-	fptr = fopen(pathname, "a");
-	fprintf(fptr,"compute_p2lsw([data_folder,'%s'],0);\n",foldername);
-	fclose(fptr);
-
-	// print general measurement settings
-	sprintf(pathname,"%s/acqu.par",foldername);
-	fptr = fopen(pathname, "a");
-	fprintf(fptr,"b1Freq = %4.3f\n", cpmg_freq);
-	fprintf(fptr,"echoTimeRun = ");
-	unsigned int cpmg_param [5];
-	for (pulse2_us=pulse2_us_start; pulse2_us<=pulse2_us_stop; pulse2_us+=pulse2_us_spacing) {
-		cpmg_param_calculator_ltc1746(cpmg_param,nmr_fsm_clkfreq,cpmg_freq,adc_ltc1746_freq,init_adc_delay_compensation,pulse1_us,pulse2_us,echo_spacing_us,samples_per_echo);
-		fprintf(fptr,"%4.3f ", (double)(cpmg_param[PULSE2_OFFST]+cpmg_param[DELAY2_OFFST]) / nmr_fsm_clkfreq );
-	}
-	fprintf(fptr,"\n");
-	fprintf(fptr,"p90LengthGiven = %4.3f\n",pulse1_us);
-	fprintf(fptr,"p90Length = %4.3f\n", (double)cpmg_param[PULSE1_OFFST]/nmr_fsm_clkfreq);
-	fprintf(fptr,"p90LengthCnt =  %d @ %4.3f MHz\n", cpmg_param[PULSE1_OFFST],nmr_fsm_clkfreq);
-	fprintf(fptr,"p180LengthGiven_sta = %4.3f\n", pulse2_us_start);
-	fprintf(fptr,"p180LengthGiven_sto = %4.3f\n", pulse2_us_stop);
-	fprintf(fptr,"p180LengthGiven_spa = %4.3f\n", pulse2_us_spacing);
-	//fprintf(fptr,"p90_dtcl = %4.3f\n", pulse1_dtcl);
-	//fprintf(fptr,"p180_dtcl = %4.3f\n", pulse2_dtcl);
-	fprintf(fptr,"echoTimeGiven = %4.3f\n", echo_spacing_us);
-	fprintf(fptr,"ieTime = %lu\n", scan_spacing_us/1000);
-	fprintf(fptr,"nrPnts = %d\n", samples_per_echo);
-	fprintf(fptr,"nrEchoes = %d\n", echoes_per_scan);
-	fprintf(fptr,"echoShift = %4.3f\n", init_adc_delay_compensation);
-	fprintf(fptr,"nrIterations = %d\n", number_of_iteration);
-	fprintf(fptr,"dummyEchoes = 0\n");
-	fprintf(fptr,"adcFreq = %4.3f\n", adc_ltc1746_freq);
-	fprintf(fptr,"dwellTime = %4.3f\n", 1/adc_ltc1746_freq);
-	fprintf(fptr,"usePhaseCycle = %d\n", ph_cycl_en);
-	fclose(fptr);
-
-	int FILENAME_LENGTH = 100;
-	char *name;
-	name = (char*) malloc (FILENAME_LENGTH*sizeof(char));
-	char *nameavg;
-	nameavg = (char*) malloc (FILENAME_LENGTH*sizeof(char));
-	unsigned int iterate;
-
-	pulse2_us_stop = pulse2_us_stop + 0.1*pulse2_us_spacing; // multiply with 0.1 to fix floating point issues
-	for (pulse2_us=pulse2_us_start; pulse2_us<=pulse2_us_stop; pulse2_us+=pulse2_us_spacing) {
-		cpmg_param_calculator_ltc1746(cpmg_param,nmr_fsm_clkfreq,cpmg_freq,adc_ltc1746_freq,init_adc_delay_compensation,pulse1_us,pulse2_us,echo_spacing_us,samples_per_echo);
-		printf("*current pulse2_us %4.2f (%d)*\n",pulse2_us,cpmg_param[PULSE2_OFFST]);
-
-		for (iterate = 1; iterate <= number_of_iteration; iterate++) {
-
-			snprintf(name, FILENAME_LENGTH,"dat_%05.3f_%03d",pulse2_us,iterate);
-			snprintf(nameavg, FILENAME_LENGTH,"avg_%05.3f_%03d",pulse2_us,iterate);
-
-			CPMG_Sequence (
-				(double)cpmg_freq,				//cpmg_freq
-				(double)pulse1_us,				//pulse1_us
-				(double)pulse2_us,				//pulse2_us
-				(double)pulse1_dtcl,			//pulse1_dtcl
-				(double)pulse2_dtcl,			//pulse2_dtcl
-				(double)echo_spacing_us,		//echo_spacing_us
-				scan_spacing_us,				//scan_spacing_us
-				samples_per_echo,				//samples_per_echo
-				echoes_per_scan,				//echoes_per_scan
-				init_adc_delay_compensation,	//compensation delay number (counted by the adc base clock)
-				ph_cycl_en,						//phase cycle enable/disable
-				name,							//filename for data
-				nameavg,						//filename for average data
-				DISABLE_MESSAGE
-			);
-
-		}
-
-	}
-
-	free(name);
-	free(nameavg);
-
-}
-
-void CPMG_amp_length_sweep (
-	double pulse_us_start,
-	double pulse_us_stop,
-	double pulse_us_spacing,
-	double cpmg_freq,
-	double pulse1_dtcl,
-	double pulse2_dtcl,
-	double echo_spacing_us,
-	long unsigned scan_spacing_us,
-	unsigned int samples_per_echo,
-	unsigned int echoes_per_scan,
-	double init_adc_delay_compensation,
-	unsigned int number_of_iteration,
-	uint32_t ph_cycl_en
-){
-
-	double nmr_fsm_clkfreq = 16*cpmg_freq;
-	double adc_ltc1746_freq = 4*cpmg_freq;
-	double pulse_us = 0;
-
-	create_measurement_folder("nmr_amp_length_sweep");
-	printf("Approximated measurement time : %.2f mins\n",( (pulse_us_stop-pulse_us_start)/pulse_us_spacing*scan_spacing_us*(double)number_of_iteration) *1e-6/60);
-
-	// print matlab script to analyze datas
-	sprintf(pathname,"measurement_history_matlab_script.txt");
-	fptr = fopen(pathname, "a");
-	fprintf(fptr,"compute_plsw([data_folder,'%s'],0);\n",foldername);
-	fclose(fptr);
-
-	// print general measurement settings
-	sprintf(pathname,"%s/acqu.par",foldername);
-	fptr = fopen(pathname, "a");
-	fprintf(fptr,"b1Freq = %4.3f\n", cpmg_freq);
-	fprintf(fptr,"echoTimeRun = ");
-	unsigned int cpmg_param [5];
-	for (pulse_us=pulse_us_start; pulse_us<=pulse_us_stop; pulse_us+=pulse_us_spacing) {
-		cpmg_param_calculator_ltc1746(cpmg_param,nmr_fsm_clkfreq,cpmg_freq,adc_ltc1746_freq,init_adc_delay_compensation,pulse_us,pulse_us*1.6,echo_spacing_us,samples_per_echo);
-		fprintf(fptr,"%4.3f ", (double)(cpmg_param[PULSE2_OFFST]+cpmg_param[DELAY2_OFFST]) / nmr_fsm_clkfreq );
-	}
-	fprintf(fptr,"\n");
-	fprintf(fptr,"p90LengthGiven_sta = %4.3f\n", pulse_us_start);
-	fprintf(fptr,"p90LengthGiven_sto = %4.3f\n", pulse_us_stop);
-	fprintf(fptr,"p90LengthGiven_spa = %4.3f\n", pulse_us_spacing);
-	fprintf(fptr,"p180LengthGiven_sta = %4.3f\n", pulse_us_start*1.6);
-	fprintf(fptr,"p180LengthGiven_sto = %4.3f\n", pulse_us_stop*1.6);
-	fprintf(fptr,"p180LengthGiven_spa = %4.3f\n", pulse_us_spacing*1.6);
-	//fprintf(fptr,"p90_dtcl = %4.3f\n", pulse1_dtcl);
-	//fprintf(fptr,"p180_dtcl = %4.3f\n", pulse2_dtcl);
-	fprintf(fptr,"echoTimeGiven = %4.3f\n", echo_spacing_us);
-	fprintf(fptr,"ieTime = %lu\n", scan_spacing_us/1000);
-	fprintf(fptr,"nrPnts = %d\n", samples_per_echo);
-	fprintf(fptr,"nrEchoes = %d\n", echoes_per_scan);
-	fprintf(fptr,"echoShift = %4.3f\n", init_adc_delay_compensation);
-	fprintf(fptr,"nrIterations = %d\n", number_of_iteration);
-	fprintf(fptr,"dummyEchoes = 0\n");
-	fprintf(fptr,"adcFreq = %4.3f\n", adc_ltc1746_freq);
-	fprintf(fptr,"dwellTime = %4.3f\n", 1/adc_ltc1746_freq);
-	fprintf(fptr,"usePhaseCycle = %d\n", ph_cycl_en);
-	fclose(fptr);
-
-
-	int FILENAME_LENGTH = 100;
-	char *name;
-	name = (char*) malloc (FILENAME_LENGTH*sizeof(char));
-	char *nameavg;
-	nameavg = (char*) malloc (FILENAME_LENGTH*sizeof(char));
-	unsigned int iterate;
-
-	pulse_us_stop = pulse_us_stop + 0.1*pulse_us_spacing; // multiply with 0.1 to fix floating point issues
-	for (pulse_us=pulse_us_start; pulse_us<=pulse_us_stop; pulse_us+=pulse_us_spacing) {
-		cpmg_param_calculator_ltc1746(cpmg_param,nmr_fsm_clkfreq,cpmg_freq,adc_ltc1746_freq,init_adc_delay_compensation,pulse_us,pulse_us*1.6,echo_spacing_us,samples_per_echo);
-		printf("* current pulse_us %4.2f (%d)*\n", pulse_us, cpmg_param[PULSE1_OFFST]);
-
-		for (iterate = 1; iterate <= number_of_iteration; iterate++) {
-
-			snprintf(name, FILENAME_LENGTH,"dat_%05.3f_%03d",pulse_us,iterate);
-			snprintf(nameavg, FILENAME_LENGTH,"avg_%05.3f_%03d",pulse_us,iterate);
-
-			CPMG_Sequence (
-				(double)cpmg_freq,				//cpmg_freq
-				(double)pulse_us,				//pulse1_us
-				(double)pulse_us*1.6,			//pulse2_us
-				(double)pulse1_dtcl,			//pulse1_dtcl
-				(double)pulse2_dtcl,			//pulse2_dtcl
-				(double)echo_spacing_us,		//echo_spacing_us
-				scan_spacing_us,				//scan_spacing_us
-				samples_per_echo,				//samples_per_echo
-				echoes_per_scan,				//echoes_per_scan
-				init_adc_delay_compensation,	//compensation delay number (counted by the adc base clock)
-				ph_cycl_en,						//phase cycle enable/disable
-				name,							//filename for data
-				nameavg,						//filename for average data
-				DISABLE_MESSAGE
-			);
-
-		}
-
-	}
-
-	free(name);
-	free(nameavg);
-
-}
-
-void CPMG_T1_meas (
-	double cpmg_freq,
-	double pulse180_t1_us,
-	double delay180_t1_us_start,
-	double delay180_t1_us_stop,
-	unsigned int delay180_t1_steps,
-	unsigned int logspace,
-	double pulse1_us,
-	double pulse2_us,
-	double pulse1_dtcl,
-	double pulse2_dtcl,
-	double echo_spacing_us,
-	long unsigned scan_spacing_us,
-	unsigned int samples_per_echo,
-	unsigned int echoes_per_scan,
-	double init_adc_delay_compensation,
-	unsigned int number_of_iteration,
-	uint32_t ph_cycl_en
-){
-
-	double nmr_fsm_clkfreq = 16*cpmg_freq;
-	double adc_ltc1746_freq = 4*cpmg_freq;
-	unsigned int pulse180_t1_int;
-	unsigned int delay180_t1_int;
-
-	if (delay180_t1_us_start < pulse180_t1_us) {
-		printf("delay180_t1 cannot be less than pulse180_t1. Program terminated. \n");
-		return;
-	}
-
-	create_measurement_folder("nmr_t1_meas");
-	printf("Approximated measurement time : %.2f mins\n",( (delay180_t1_us_start+delay180_t1_us_stop)/2*(double)delay180_t1_steps + scan_spacing_us*(double)number_of_iteration*(double)delay180_t1_steps + scan_spacing_us*(double)number_of_iteration ) *1e-6/60);
-
-	unsigned int cpmg_param [5];
-	cpmg_param_calculator_ltc1746 (
-		cpmg_param,						// cpmg parameter output
-		nmr_fsm_clkfreq,				// nmr fsm operating frequency (in MHz)
-		cpmg_freq,						// cpmg operating frequency
-		adc_ltc1746_freq,				// adc sampling frequency (for LTC2134 it is 4.5 Msps)
-		init_adc_delay_compensation,	// shift the 180 deg data capture relative to the middle of the 180 delay span. This is to compensate shifting because of signal path delay / other factors. This parameter could be negative as well
-		pulse1_us,						// the length of cpmg 90 deg pulse
-		pulse2_us,						// the length of cpmg 180 deg pulse
-		echo_spacing_us,				// the length between one echo to the other (equal to pulse2_us + delay2_us)
-		samples_per_echo				// the total adc samples captured in one echo
-	);
-	// print general measurement settings
-	sprintf(pathname,"%s/acqu.par",foldername);
-	fptr = fopen(pathname, "a");
-	fprintf(fptr,"b1Freq = %4.3f\n", cpmg_freq);
-	fprintf(fptr,"p90LengthGiven = %4.3f\n", pulse1_us);
-	fprintf(fptr,"p90LengthRun = %4.3f\n", (double)cpmg_param[PULSE1_OFFST]/nmr_fsm_clkfreq);
-	fprintf(fptr,"p90LengthCnt = %d @ %4.3f MHz\n", cpmg_param[PULSE1_OFFST],nmr_fsm_clkfreq);
-	fprintf(fptr,"d90LengthRun = %4.3f\n", (double)cpmg_param[DELAY1_OFFST]/nmr_fsm_clkfreq);
-	fprintf(fptr,"d90LengthCnt = %d @ %4.3f MHz\n", cpmg_param[DELAY1_OFFST],nmr_fsm_clkfreq);
-	fprintf(fptr,"p180LengthGiven = %4.3f\n", pulse2_us);
-	fprintf(fptr,"p180LengthRun = %4.3f\n", (double)cpmg_param[PULSE2_OFFST]/nmr_fsm_clkfreq);
-	fprintf(fptr,"p180LengthCnt =  %d @ %4.3f MHz\n", cpmg_param[PULSE2_OFFST],nmr_fsm_clkfreq);
-	fprintf(fptr,"d180LengthRun = %4.3f\n", (double)cpmg_param[DELAY2_OFFST]/nmr_fsm_clkfreq);
-	fprintf(fptr,"d180LengthCnt = %d @ %4.3f MHz\n", cpmg_param[DELAY2_OFFST],nmr_fsm_clkfreq);
-	//fprintf(fptr,"p90_dtcl = %4.3f\n", pulse1_dtcl);
-	//fprintf(fptr,"p180_dtcl = %4.3f\n", pulse2_dtcl);
-	fprintf(fptr,"echoTimeRun = %4.3f\n", (double)(cpmg_param[PULSE2_OFFST]+cpmg_param[DELAY2_OFFST])/nmr_fsm_clkfreq );
-	fprintf(fptr,"echoTimeGiven = %4.3f\n", echo_spacing_us);
-	fprintf(fptr,"ieTime = %lu\n", scan_spacing_us/1000);
-	fprintf(fptr,"nrPnts = %d\n", samples_per_echo);
-	fprintf(fptr,"nrEchoes = %d\n", echoes_per_scan);
-	fprintf(fptr,"echoShift = %4.3f\n", init_adc_delay_compensation);
-	fprintf(fptr,"nrIterations = %d\n", number_of_iteration);
-	fprintf(fptr,"dummyEchoes = 0\n");
-	fprintf(fptr,"adcFreq = %4.3f\n", adc_ltc1746_freq);
-	fprintf(fptr,"dwellTime = %4.3f\n", 1/adc_ltc1746_freq);
-	fprintf(fptr,"usePhaseCycle = %d\n", ph_cycl_en);
-	fprintf(fptr,"minTau = %4.3f\n", delay180_t1_us_start/1000);
-	fprintf(fptr,"maxTau = %4.3f\n", delay180_t1_us_stop/1000);
-	fprintf(fptr,"tauSteps = %d\n", delay180_t1_steps);
-	fprintf(fptr,"logSpace = %d\n",logspace);
-	if (logspace) {
-		fprintf(fptr,"logspace = \"yes\"\n");
-	}
-	else {
-		fprintf(fptr,"logspace = \"no\"\n");
-	}
-	fclose(fptr);
-
-	// print matlab script to analyze datas
-	sprintf(pathname,"measurement_history_matlab_script.txt");
-	fptr = fopen(pathname, "a");
-	fprintf(fptr,"compute_t1_meas([data_folder,'%s'],0);\n",foldername);
-	fclose(fptr);
-
-	double delay180_t1, delay180_t1_us;
-	int FILENAME_LENGTH = 100;
-	char *name;
-	name = (char*) malloc (FILENAME_LENGTH*sizeof(char));
-	char *nameavg;
-	nameavg = (char*) malloc (FILENAME_LENGTH*sizeof(char));
-	unsigned int iterate;
-
-	// generate logspace or linspace
-	double delay180_t1_start, delay180_t1_stop, delay180_t1_spacing;
-	if (logspace) {
-		delay180_t1_start	= log(delay180_t1_us_start);
-		delay180_t1_stop	= log(delay180_t1_us_stop);
-	}
-	else {
-		delay180_t1_start	= delay180_t1_us_start;
-		delay180_t1_stop	= delay180_t1_us_stop;
-	}
-	delay180_t1_spacing = (delay180_t1_stop-delay180_t1_start)/(delay180_t1_steps-1);
-	delay180_t1_stop	= delay180_t1_stop + 0.1*delay180_t1_spacing; // important compensation for generating the right range of data. Due to floating point operation, the stop data cannot be precise, so when we compare it in the loop below, sometimes the delay180_t1_stop is less than the computed delay180_t1 (through loop), resulting in the last delay180_t1_stop given not being covered. This addition factor fixes the issue.
-	for (delay180_t1=delay180_t1_start; delay180_t1<=delay180_t1_stop; delay180_t1+=delay180_t1_spacing) {
-
-		if (logspace) {
-			delay180_t1_us = exp(delay180_t1);
-		}
-		else { // linear space
-			delay180_t1_us = delay180_t1;
-		}
-
-		pulse180_t1_int = (unsigned int)(pulse180_t1_us * cpmg_freq*16);
-		delay180_t1_int = (unsigned int)(delay180_t1_us * cpmg_freq*16) - pulse180_t1_int;
-		// round number to cpmg_freq multiplication
-		unsigned int rf_mult = (unsigned int)(lround(nmr_fsm_clkfreq/cpmg_freq));
-		pulse180_t1_int = (unsigned int)(lround((double)pulse180_t1_int/(double)rf_mult))*rf_mult;
-		delay180_t1_int = (unsigned int)(lround((double)delay180_t1_int/(double)rf_mult))*rf_mult;
-
-		// write to the state machine
-		alt_write_word( h2p_t1_pulse , pulse180_t1_int );
-		alt_write_word( h2p_t1_delay , delay180_t1_int );
-
-		printf("delay180_us: %.3f us (%u cycles at %.2f MHz)\n", delay180_t1_us, delay180_t1_int, cpmg_freq*16);
-
-		for (iterate = 1; iterate <= number_of_iteration; iterate++) {
-
-			snprintf(name, FILENAME_LENGTH,"dat_%03.3f_%03d",delay180_t1_us,iterate);
-			snprintf(nameavg, FILENAME_LENGTH,"avg_%03.3f_%03d",delay180_t1_us,iterate);
-			CPMG_Sequence (
-				(double)cpmg_freq,				//cpmg_freq
-				(double)pulse1_us,				//pulse1_us
-				(double)pulse2_us,				//pulse2_us
-				(double)pulse1_dtcl,			//pulse1_dtcl
-				(double)pulse2_dtcl,			//pulse2_dtcl
-				(double)echo_spacing_us,		//echo_spacing_us
-				scan_spacing_us,				//scan_spacing_us
-				samples_per_echo,				//samples_per_echo
-				echoes_per_scan,				//echoes_per_scan
-				init_adc_delay_compensation,	//compensation delay number (counted by the adc base clock)
-				ph_cycl_en,						//phase cycle enable/disable
-				name,							//filename for data
-				nameavg,						//filename for average data
-				DISABLE_MESSAGE
-			);
-		}
-
-		// RESET THE VALUE TO 0. WHICH BY DEFAULT SKIPPING THE T1 MEASUREMENT SEQUENCE
-		alt_write_word( h2p_t1_pulse , 0 );
-		alt_write_word( h2p_t1_delay , 0 );
-
-	}
-
-	//scan_spacing_us = (long unsigned)(2*scan_spacing_us);
-	for (iterate = 1; iterate <= 2*number_of_iteration; iterate++) {
-		snprintf(name, FILENAME_LENGTH,"datref_%03d",iterate);
-		snprintf(nameavg, FILENAME_LENGTH,"avgref_%03d",iterate);
-		CPMG_Sequence (
-			(double)cpmg_freq,				//cpmg_freq
-			(double)pulse1_us,				//pulse1_us
-			(double)pulse2_us,				//pulse2_us
-			(double)pulse1_dtcl,			//pulse1_dtcl
-			(double)pulse2_dtcl,			//pulse2_dtcl
-			(double)echo_spacing_us,		//echo_spacing_us
-			scan_spacing_us,				//scan_spacing_us
-			samples_per_echo,				//samples_per_echo
-			echoes_per_scan,				//echoes_per_scan
-			init_adc_delay_compensation,	//compensation delay number (counted by the adc base clock)
-			ph_cycl_en,						//phase cycle enable/disable
-			name,							//filename for data
-			nameavg,						//filename for average data
-			DISABLE_MESSAGE
-		);
-	}
-
-	free(name);
-	free(nameavg);
-}
-
-void CPMG_T1_p180_sw (
-		double cpmg_freq,
-		double pulse180_t1_us_start,
-		double pulse180_t1_us_stop,
-		unsigned int pulse180_t1_steps,
-		double delay180_t1_us,
-		unsigned int logspace,
-		double pulse1_us,
-		double pulse2_us,
-		double pulse1_dtcl,
-		double pulse2_dtcl,
-		double echo_spacing_us,
-		long unsigned scan_spacing_us,
-		unsigned int samples_per_echo,
-		unsigned int echoes_per_scan,
-		double init_adc_delay_compensation,
-		unsigned int number_of_iteration,
-		uint32_t ph_cycl_en
-){
-
-	double nmr_fsm_clkfreq = 16*cpmg_freq;
-	double adc_ltc1746_freq = 4*cpmg_freq;
-	unsigned int pulse180_t1_int;
-	unsigned int delay180_t1_int;
-	double pulse180_t1, pulse180_t1_us;
-
-	printf("Approximated measurement time : %.2f mins\n",scan_spacing_us*(double)pulse180_t1_steps*(double)number_of_iteration*1e-6/60);
-	create_measurement_folder("nmr_t1_p180_sw");
-
-	// print matlab script to analyze datas
-	sprintf(pathname,"measurement_history_matlab_script.txt");
-	fptr = fopen(pathname, "a");
-	fprintf(fptr,"compute_t1_p180_sw([data_folder,'%s'],0);\n",foldername);
-	fclose(fptr);
-
-	unsigned int cpmg_param [5];
-	cpmg_param_calculator_ltc1746 (
-		cpmg_param,						// cpmg parameter output
-		nmr_fsm_clkfreq,				// nmr fsm operating frequency (in MHz)
-		cpmg_freq,						// cpmg operating frequency
-		adc_ltc1746_freq,				// adc sampling frequency (for LTC2134 it is 4.5 Msps)
-		init_adc_delay_compensation,	// shift the 180 deg data capture relative to the middle of the 180 delay span. This is to compensate shifting because of signal path delay / other factors. This parameter could be negative as well
-		pulse1_us,						// the length of cpmg 90 deg pulse
-		pulse2_us,						// the length of cpmg 180 deg pulse
-		echo_spacing_us,				// the length between one echo to the other (equal to pulse2_us + delay2_us)
-		samples_per_echo				// the total adc samples captured in one echo
-	);
-	// print general measurement settings
-	sprintf(pathname,"%s/acqu.par",foldername);
-	fptr = fopen(pathname, "a");
-	fprintf(fptr,"b1Freq = %4.3f\n", cpmg_freq);
-	fprintf(fptr,"p90LengthGiven = %4.3f\n", pulse1_us);
-	fprintf(fptr,"p90LengthRun = %4.3f\n", (double)cpmg_param[PULSE1_OFFST]/nmr_fsm_clkfreq);
-	fprintf(fptr,"p90LengthCnt = %d @ %4.3f MHz\n", cpmg_param[PULSE1_OFFST],nmr_fsm_clkfreq);
-	fprintf(fptr,"d90LengthRun = %4.3f\n", (double)cpmg_param[DELAY1_OFFST]/nmr_fsm_clkfreq);
-	fprintf(fptr,"d90LengthCnt = %d @ %4.3f MHz\n", cpmg_param[DELAY1_OFFST],nmr_fsm_clkfreq);
-	fprintf(fptr,"p180LengthGiven = %4.3f\n", pulse2_us);
-	fprintf(fptr,"p180LengthRun = %4.3f\n", (double)cpmg_param[PULSE2_OFFST]/nmr_fsm_clkfreq);
-	fprintf(fptr,"p180LengthCnt =  %d @ %4.3f MHz\n", cpmg_param[PULSE2_OFFST],nmr_fsm_clkfreq);
-	fprintf(fptr,"d180LengthRun = %4.3f\n", (double)cpmg_param[DELAY2_OFFST]/nmr_fsm_clkfreq);
-	fprintf(fptr,"d180LengthCnt = %d @ %4.3f MHz\n", cpmg_param[DELAY2_OFFST],nmr_fsm_clkfreq);
-	//fprintf(fptr,"p90_dtcl = %4.3f\n", pulse1_dtcl);
-	//fprintf(fptr,"p180_dtcl = %4.3f\n", pulse2_dtcl);
-	fprintf(fptr,"echoTimeRun = %4.3f\n", (double)(cpmg_param[PULSE2_OFFST]+cpmg_param[DELAY2_OFFST])/nmr_fsm_clkfreq );
-	fprintf(fptr,"echoTimeGiven = %4.3f\n", echo_spacing_us);
-	fprintf(fptr,"ieTime = %lu\n", scan_spacing_us/1000);
-	fprintf(fptr,"nrPnts = %d\n", samples_per_echo);
-	fprintf(fptr,"nrEchoes = %d\n", echoes_per_scan);
-	fprintf(fptr,"echoShift = %4.3f\n", init_adc_delay_compensation);
-	fprintf(fptr,"nrIterations = %d\n", number_of_iteration);
-	fprintf(fptr,"dummyEchoes = 0\n");
-	fprintf(fptr,"adcFreq = %4.3f\n", adc_ltc1746_freq);
-	fprintf(fptr,"dwellTime = %4.3f\n", 1/adc_ltc1746_freq);
-	fprintf(fptr,"usePhaseCycle = %d\n", ph_cycl_en);
-	fprintf(fptr,"minP180t1 = %4.3f\n", pulse180_t1_us_start);
-	fprintf(fptr,"maxP180t1 = %4.3f\n", pulse180_t1_us_stop);
-	fprintf(fptr,"p180t1steps = %d\n", pulse180_t1_steps);
-	fprintf(fptr,"logspace = %d\n",logspace);
-	fclose(fptr);
-
-	int FILENAME_LENGTH = 100;
-	char *name;
-	name = (char*) malloc (FILENAME_LENGTH*sizeof(char));
-	char *nameavg;
-	nameavg = (char*) malloc (FILENAME_LENGTH*sizeof(char));
-	unsigned int iterate;
-
-	// generate logspace or linspace
-	double pulse180_t1_start, pulse180_t1_stop, pulse180_t1_spacing;
-	if (logspace) {
-		pulse180_t1_start	= log(pulse180_t1_us_start);
-		pulse180_t1_stop	= log(pulse180_t1_us_stop);
-	}
-	else {
-		pulse180_t1_start	= pulse180_t1_us_start;
-		pulse180_t1_stop	= pulse180_t1_us_stop;
-	}
-	pulse180_t1_spacing = (pulse180_t1_stop-pulse180_t1_start)/(pulse180_t1_steps-1);
-	pulse180_t1_stop	= pulse180_t1_stop + 0.1*pulse180_t1_spacing; // important compensation for generating the right range of data. Due to floating point operation, the stop data cannot be precise, so when we compare it in the loop below, sometimes the pulse180_t1_stop is less than the computed pulse180_t1 (through loop), resulting in the last pulse180_t1_stop given not being covered. This addition factor fixes the issue.
-	for (pulse180_t1=pulse180_t1_start; pulse180_t1<=pulse180_t1_stop; pulse180_t1+=pulse180_t1_spacing) {
-
-		if (logspace) {
-			pulse180_t1_us = exp(pulse180_t1);
-		}
-		else { // linear space
-			pulse180_t1_us = pulse180_t1;
-		}
-
-		pulse180_t1_int = (unsigned int)(pulse180_t1_us * cpmg_freq*16);
-		delay180_t1_int = (unsigned int)(delay180_t1_us * cpmg_freq*16) - pulse180_t1_int;
-		// round number to cpmg_freq multiplication
-		unsigned int rf_mult = (unsigned int)(lround(nmr_fsm_clkfreq/cpmg_freq));
-		pulse180_t1_int = (unsigned int)(lround((double)pulse180_t1_int/(double)rf_mult))*rf_mult;
-		delay180_t1_int = (unsigned int)(lround((double)delay180_t1_int/(double)rf_mult))*rf_mult;
-		printf("pulse180_us: %.3f us (%u cycles at %.2f MHz)\n", pulse180_t1_us, pulse180_t1_int, cpmg_freq*16);
-
-		alt_write_word( h2p_t1_pulse , pulse180_t1_int );
-		alt_write_word( h2p_t1_delay , delay180_t1_int );
-
-		for (iterate = 1; iterate <= number_of_iteration; iterate++) {
-
-			snprintf(name, FILENAME_LENGTH,"dat_%03.3f_%03d",pulse180_t1_us,iterate);
-			snprintf(nameavg, FILENAME_LENGTH,"avg_%03.3f_%03d",pulse180_t1_us,iterate);
-			CPMG_Sequence (
-				(double)cpmg_freq,				//cpmg_freq
-				(double)pulse1_us,				//pulse1_us
-				(double)pulse2_us,				//pulse2_us
-				(double)pulse1_dtcl,			//pulse1_dtcl
-				(double)pulse2_dtcl,			//pulse2_dtcl
-				(double)echo_spacing_us,		//echo_spacing_us
-				scan_spacing_us,				//scan_spacing_us
-				samples_per_echo,				//samples_per_echo
-				echoes_per_scan,				//echoes_per_scan
-				init_adc_delay_compensation,	//compensation delay number (counted by the adc base clock)
-				ph_cycl_en,						//phase cycle enable/disable
-				name,							//filename for data
-				nameavg,						//filename for average data
-				DISABLE_MESSAGE
-			);
-		}
-
-		// RESET THE VALUE TO 0. WHICH BY DEFAULT SKIPPING THE T1 MEASUREMENT SEQUENCE
-		alt_write_word( h2p_t1_pulse , 0 );
-		alt_write_word( h2p_t1_delay , 0 );
-
-	}
-
-	free(name);
-	free(nameavg);
 }
 
 void wobble_function (double startfreq, double stopfreq, double spacfreq, double sampfreq, unsigned int wobb_samples) {
@@ -2346,7 +1555,7 @@ void wobble_function (double startfreq, double stopfreq, double spacfreq, double
 
 void noise_meas (unsigned int signal_path, unsigned int num_of_samples) {
 
-	create_measurement_folder("nmr_noise");
+	create_measurement_folder("noise");
 
 	// print matlab script to analyze datas
 	sprintf(pathname,"measurement_history_matlab_script.txt");
@@ -2456,6 +1665,8 @@ void close_system () {
 
 }
 
+// MAIN SYSTEM (ENABLE ONE AT A TIME)
+
 /* Init default system param (rename the output to "init")
 int main() {
     printf("Init system\n");
@@ -2558,8 +1769,6 @@ int main(int argc, char * argv[]) {
 }
 */
 
-
-
 // CPMG Iterate (rename the output to "cpmg_iterate")
 int main(int argc, char * argv[]) {
     // printf("NMR system start\n");
@@ -2610,371 +1819,3 @@ int main(int argc, char * argv[]) {
     return 0;
 }
 //
-
-
-/* OLD MAIN
-int main() {
-    // printf("\n******************************************************\n");
-    // printf("NMR system start again!\n");
-    // 
-    // open_physical_memory_device(); // open device file of the memory
-    // mmap_peripherals(); // map hps and fpga memory
-    // init_default_system_param(); // initialize parameters needed by the fpga and peripherals
-
-    // TEST COMMAND
-	// sweep_matching_network();
-	// test_dac_ad5722r();
-    // sweep_vbias(); // vbias cannot be more than about 0.8v due to transistor breakdown, I guess
-	// sweep_vvarac();
-	// sweep_rx_gain();
-    // test_leds_and_switches();
-    // tx_sampling(4.3, 25.0, 100, "test"); // output is at root directory /
-
-    // HARDWARE CHARACTERIZATION COMMAND (activate only 1 at a time and run the corresponding matlab code)
-    // matlab_vvarac_cnt(); // matlab code: agilent_4395a_preamp_characterization.m
-    // matlab_vbias_cnt(); // matlab code: agilent_4395a_preamp_characterization.m or agilent_4395a_impedance_characterization.m
-    // matlab_mtching_ntwrk_cnt(); // matlab code: agilent_4395a_mtching_reflection_characterization.m
-
-
-    // NMR NOISE MEASUREMENT
-    // unsigned int signal_path = SIG_NORM_PATH;
-    // unsigned int num_of_samples = 512*256;
-    // noise_meas (signal_path, num_of_samples);
-
-
-	/// CPMG WOBBLE
-    //// write_i2c_relay_cnt(74,150); usleep(500000);
-    //double startfreq 			= 4;		// wobble start frequency in MHz
-	//double stopfreq 			= 5;		// wobble stop frequency in MHz
-	//double spacfreq 			= 0.02;		// wobble frequency spacing in MHz
-	//double sampfreq				= 25.0;
-	//unsigned int wobb_samples 	= (unsigned int)(lround(sampfreq/spacfreq));	// the number of ADC samples taken
-    //wobble_function (
-    //		startfreq,
-	//		stopfreq,
-	//		spacfreq,
-	//		sampfreq,
-	//		wobb_samples
-	//);
-	///
-
-
-    /// FREQUENCY SWEEP WOBBLE (HARDWARE TUNING IS LIMITED BY THE NMR_TABLE FREQ SPACING)
-	//double cpmg_freq;
-	//double cpmg_freq_start 		= 3;
-	//double cpmg_freq_stop 		= 5;
-	//double cpmg_freq_spacing 	= 0.1;	// the minimum is 1KHz spacing (limited by the coding for floating point number)
-	//double startfreq 			= 3.0;	// wobble start frequency in MHz
-	//double stopfreq 			= 5.0;	// wobble stop frequency in MHz
-	//double spacfreq 			= 0.02;	// wobble frequency spacing in MHz
-	//unsigned int wobb_samples 	= 100;	// the number of ADC samples taken
-	//double sampfreq 			= 25.0; // sampling frequency
-    //
-	//for (cpmg_freq=cpmg_freq_start; cpmg_freq<cpmg_freq_stop; cpmg_freq+=cpmg_freq_spacing) {
-	//	// tune_board(cpmg_freq);
-	//	wobble_function (
-	//		startfreq,
-	//		stopfreq,
-	//		spacfreq,
-	//		sampfreq,
-	//		wobb_samples
-	//	);
-	//}
-	///
-
-
-    /// CPMG ITERATE
-	//// ctrl_out |= (PLL_ANALYZER_RST);
-	//// alt_write_word(h2p_ctrl_out_addr, ctrl_out);		// write down the control
-	//double cpmg_freq = 4.253;
-	//double pulse1_us = 3;
-	//double pulse2_us = pulse1_us*1.6;
-	//double pulse1_dtcl = 0.5; // useless at this point
-	//double pulse2_dtcl = 0.5; // useless at this point
-	//double echo_spacing_us = 150;
-	//long unsigned scan_spacing_us = 400000; // 4000000
-	//unsigned int samples_per_echo = 512; //2048
-	//unsigned int echoes_per_scan = 64; //64
-	//double init_adc_delay_compensation = 10;	// the delay to compensate signal shifting due to path delay in the AFE, in microseconds
-	//unsigned int number_of_iteration = 100;
-	//uint32_t ph_cycl_en = ENABLE;
-	//// tune_board(cpmg_freq);
-	//// write_i2c_relay_cnt(71,196);
-	//// usleep(500000);
-	//CPMG_iterate (
-	//	cpmg_freq,
-	//	pulse1_us,
-	//	pulse2_us,
-	//	pulse1_dtcl,
-	//	pulse2_dtcl,
-	//	echo_spacing_us,
-	//	scan_spacing_us,
-	//	samples_per_echo,
-	//	echoes_per_scan,
-	//	init_adc_delay_compensation,
-	//	number_of_iteration,
-	//	ph_cycl_en
-	//);
-	///
-
-
-
-	/// FREQUENCY SWEEP (HARDWARE TUNING IS LIMITED BY THE NMR_TABLE FREQ SPACING)
-	//double cpmg_freq_start = 4.20;
-	//double cpmg_freq_stop = 4.30;
-	//double cpmg_freq_spacing = 0.01; // the minimum is 20kHz spacing or 0.02. Don't know why it can't go less than that. The signal seems to be gone if it's less than that. The transmitter signal looks fine, but the signal received looks nothing.
-	//double pulse1_us = 3.58; // 5.8
-	//double pulse2_us = pulse1_us*1.6; // 9.3
-	//double pulse1_dtcl = 0.5; // useless
-	//double pulse2_dtcl = 0.5; // useless
-	//double echo_spacing_us = 180;
-	//long unsigned scan_spacing_us = 400000;
-	//unsigned int samples_per_echo = 2048;
-	//unsigned int echoes_per_scan = 64;
-	//double init_adc_delay_compensation = 10;	// the delay to compensate signal shifting due to path delay in the AFE, in microseconds
-	//unsigned int number_of_iteration = 4;
-	//uint32_t ph_cycl_en = ENABLE;
-	////tune_board(4.272);
-	////write_i2c_relay_cnt(69,196);
-	////usleep(500000);
-	//CPMG_freq_sweep (
-	//	cpmg_freq_start,
-	//	cpmg_freq_stop,
-	//	cpmg_freq_spacing,
-	//	pulse1_us,
-	//	pulse2_us,
-	//	pulse1_dtcl,
-	//	pulse2_dtcl,
-	//	echo_spacing_us,
-	//	scan_spacing_us,
-	//	samples_per_echo,
-	//	echoes_per_scan,
-	//	init_adc_delay_compensation,
-	//	number_of_iteration,
-	//	ph_cycl_en
-	//);
-	///
-
-
-    /// PULSE DTCL SWEEP
-	//double pulse_dtcl_start = 0.02;
-	//double pulse_dtcl_stop = 0.50;
-	//double pulse_dtcl_spacing = 0.02;
-	//double cpmg_freq = 4.3; tune_board(cpmg_freq);
-	//double pulse1_us = 20;
-	//double pulse2_us = 32;
-	//// double pulse2_dtcl = 0.35;
-	//double echo_spacing_us = 180;
-	//long unsigned scan_spacing_us = 400000;
-	//unsigned int samples_per_echo = 1024;
-	//unsigned int echoes_per_scan = 128;
-	//double init_adc_delay_compensation = 10;	// the delay to compensate signal shifting due to path delay in the AFE, in microseconds
-	//unsigned int number_of_iteration = 1;
-	//uint32_t ph_cycl_en = ENABLE;
-	//CPMG_amp_dt_sweep (
-	//	pulse_dtcl_start,
-	//	pulse_dtcl_stop,
-	//	pulse_dtcl_spacing,
-	//	cpmg_freq,
-	//	pulse1_us,
-	//	pulse2_us,
-	//	echo_spacing_us,
-	//	scan_spacing_us,
-	//	samples_per_echo,
-	//	echoes_per_scan,
-	//	init_adc_delay_compensation,
-	//	number_of_iteration,
-	//	ph_cycl_en
-	//);
-	///
-
-
-    /// PULSE1 LENGTH SWEEP
-	//double pulse1_us_start = 5;
-	//double pulse1_us_stop = 15;
-	//double pulse1_us_spacing = 0.1;
-	//double cpmg_freq = 4.24; //tune_board(cpmg_freq);
-	//double pulse1_dtcl = 0.5;
-	//double pulse2_us = 11*1.6;
-	//double pulse2_dtcl = 0.5;
-	//double echo_spacing_us = 300;
-	//long unsigned scan_spacing_us = 400000;
-	//unsigned int samples_per_echo = 512;
-	//unsigned int echoes_per_scan = 256;
-	//double init_adc_delay_compensation = 10;	// the delay to compensate signal shifting due to path delay in the AFE, in microseconds
-	//unsigned int number_of_iteration = 4;
-	//uint32_t ph_cycl_en = ENABLE;
-	//CPMG_amp_pulse1_length_sweep (
-	//	pulse1_us_start,
-	//	pulse1_us_stop,
-	//	pulse1_us_spacing,
-	//	cpmg_freq,
-	//	pulse1_dtcl,
-	//	pulse2_us,
-	//	pulse2_dtcl,
-	//	echo_spacing_us,
-	//	scan_spacing_us,
-	//	samples_per_echo,
-	//	echoes_per_scan,
-	//	init_adc_delay_compensation,
-	//	number_of_iteration,
-	//	ph_cycl_en
-	//);
-	///
-
-
-    /// PULSE2 LENGTH SWEEP
-	//double pulse2_us_start = 10;
-	//double pulse2_us_stop = 30;
-	//double pulse2_us_spacing = 1;
-	//double cpmg_freq = 4.24;
-	//double pulse1_dtcl = 0.5;
-	//double pulse1_us = 11;
-	//double pulse2_dtcl = 0.5;
-	//double echo_spacing_us = 300;
-	//long unsigned scan_spacing_us = 400000;
-	//unsigned int samples_per_echo = 512;
-	//unsigned int echoes_per_scan = 256;
-	//double init_adc_delay_compensation = 10;	// the delay to compensate signal shifting due to path delay in the AFE, in microseconds
-	//unsigned int number_of_iteration = 4;
-	//uint32_t ph_cycl_en = ENABLE;
-	//CPMG_amp_pulse2_length_sweep (
-	//	pulse2_us_start,
-	//	pulse2_us_stop,
-	//	pulse2_us_spacing,
-	//	cpmg_freq,
-	//	pulse1_us,
-	//	pulse1_dtcl,
-	//	pulse2_dtcl,
-	//	echo_spacing_us,
-	//	scan_spacing_us,
-	//	samples_per_echo,
-	//	echoes_per_scan,
-	//	init_adc_delay_compensation,
-	//	number_of_iteration,
-	//	ph_cycl_en
-	//);
-	///
-
-
-    /// CPMG PULSE LENGTH SWEEP (1.6 fixed ratio)
-   	//double pulse_us_start = 1;
-   	//double pulse_us_stop = 5;
-   	//double pulse_us_spacing = 0.2;
-   	//double cpmg_freq = 4.25;
-   	//double pulse1_dtcl = 0.5;
-   	//double pulse2_dtcl = 0.5;
-   	//double echo_spacing_us = 200;
-   	//long unsigned scan_spacing_us = 400000;
-   	//unsigned int samples_per_echo = 1024;
-   	//unsigned int echoes_per_scan = 128;
-   	//double init_adc_delay_compensation = 10;	// the delay to compensate signal shifting due to path delay in the AFE, in microseconds
-	//unsigned int number_of_iteration = 4;
-   	//uint32_t ph_cycl_en = ENABLE;
-   	////tune_board(cpmg_freq);
-	////write_i2c_relay_cnt(71,196);
-	////usleep(500000);
-   	//CPMG_amp_length_sweep (
-   	//	pulse_us_start,
-   	//	pulse_us_stop,
-   	//	pulse_us_spacing,
-   	//	cpmg_freq,
-   	//	pulse1_dtcl,
-   	//	pulse2_dtcl,
-   	//	echo_spacing_us,
-   	//	scan_spacing_us,
-   	//	samples_per_echo,
-   	//	echoes_per_scan,
-   	//	init_adc_delay_compensation,
-   	//	number_of_iteration,
-   	//	ph_cycl_en
-   	//);
-	///
-
-
-	/// T1 MEASUREMENT
-	//double cpmg_freq = 4.24;
-	//double delay180_t1_us_start		= 100;
-	//double delay180_t1_us_stop		= 500000;
-	//unsigned int delay180_t1_steps	= 20;
-	//unsigned int logspace = 1; // 1 for logspace, 0 for linspace
-	//double pulse1_us = 11;
-	//double pulse2_us = pulse1_us*1.6;
-	//double pulse180_t1_us = 20;
-	//double pulse1_dtcl = 0.5;
-	//double pulse2_dtcl = 0.5;
-	//double echo_spacing_us = 500;
-	//long unsigned scan_spacing_us = (long unsigned)delay180_t1_us_stop;
-	//unsigned int samples_per_echo = 1024;
-	//unsigned int echoes_per_scan = 128;
-	//double init_adc_delay_compensation = 10;
-	//unsigned int number_of_iteration = 4;
-	//uint32_t ph_cycl_en = ENABLE;
-	//CPMG_T1_meas (
-	//	cpmg_freq,
-	//	pulse180_t1_us,
-	//	delay180_t1_us_start,
-	//	delay180_t1_us_stop,
-	//	delay180_t1_steps,
-	//	logspace,
-	//	pulse1_us,
-	//	pulse2_us,
-	//	pulse1_dtcl,
-	//	pulse2_dtcl,
-	//	echo_spacing_us,
-	//	scan_spacing_us,
-	//	samples_per_echo,
-	//	echoes_per_scan,
-	//	init_adc_delay_compensation,
-	//	number_of_iteration,
-	//	ph_cycl_en
-	//);
-	///
-
-
-    /// CPMG T1 180 degrees pulse length sweep
-    //double cpmg_freq = 4.24;
-	//double pulse180_t1_us_start		= 10;
-	//double pulse180_t1_us_stop		= 25;
-	//unsigned int pulse180_t1_steps	= 10;
-	//unsigned int logspace = 0; // 1 for logspace, 0 for linspace
-	//double pulse1_us = 11;
-	//double pulse2_us = pulse1_us*1.6;
-	//double delay180_t1_us = 0;
-	//double pulse1_dtcl = 0.5;
-	//double pulse2_dtcl = 0.5;
-	//double echo_spacing_us = 300;
-	//long unsigned scan_spacing_us = 400000;
-	//unsigned int samples_per_echo = 512;
-	//unsigned int echoes_per_scan = 256;
-	//double init_adc_delay_compensation = 10;
-	//unsigned int number_of_iteration = 4;
-	//uint32_t ph_cycl_en = ENABLE;
-	//CPMG_T1_p180_sw (
-	//	cpmg_freq,
-	//	pulse180_t1_us_start,
-	//	pulse180_t1_us_stop,
-	//	pulse180_t1_steps,
-	//	delay180_t1_us,
-	//	logspace,
-	//	pulse1_us,
-	//	pulse2_us,
-	//	pulse1_dtcl,
-	//	pulse2_dtcl,
-	//	echo_spacing_us,
-	//	scan_spacing_us,
-	//	samples_per_echo,
-	//	echoes_per_scan,
-	//	init_adc_delay_compensation,
-	//	number_of_iteration,
-	//	ph_cycl_en
-	//);
-	///
-
-    //close_system();
-    //munmap_peripherals(); // unmap hps and fpga memory
-    //close_physical_memory_device(); // close device file of the memory
-    //
-    //return 0;
-}
-*/
