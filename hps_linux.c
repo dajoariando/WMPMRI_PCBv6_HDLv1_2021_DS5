@@ -692,17 +692,21 @@ void sweep_rx_gain () {
 
 }
 
-void fifo_to_sdram_dma_trf (uint32_t transfer_length, uint8_t en_mesg) {
+void fifo_to_sdram_dma_trf (uint32_t transfer_length) {
+	alt_write_word(h2p_dma_addr+DMA_CONTROL_OFST,	DMA_CTRL_SWRST_MSK); 	// write twice to do software reset
+		alt_write_word(h2p_dma_addr+DMA_CONTROL_OFST,	DMA_CTRL_SWRST_MSK); 	// software resetted
+		alt_write_word(h2p_dma_addr+DMA_STATUS_OFST,	0x0); 					// clear the DONE bit
+		alt_write_word(h2p_dma_addr+DMA_READADDR_OFST,	ADC_FIFO_MEM_OUT_BASE); // set DMA read address
+		alt_write_word(h2p_dma_addr+DMA_WRITEADDR_OFST,	SDRAM_BASE);			// set DMA write address
+		alt_write_word(h2p_dma_addr+DMA_LENGTH_OFST,	transfer_length*4);		// set transfer length (in byte, so multiply by 4 to get word-addressing)
+		alt_write_word(h2p_dma_addr+DMA_CONTROL_OFST,	(DMA_CTRL_WORD_MSK|DMA_CTRL_LEEN_MSK|DMA_CTRL_RCON_MSK)); // set settings for transfer
+		alt_write_word(h2p_dma_addr+DMA_CONTROL_OFST,	(DMA_CTRL_WORD_MSK|DMA_CTRL_LEEN_MSK|DMA_CTRL_RCON_MSK|DMA_CTRL_GO_MSK)); // set settings & also enable transfer
+}
+
+void datawrite_with_dma (uint32_t transfer_length, uint8_t en_mesg) {
 	int i_sd = 0;
 
-	alt_write_word(h2p_dma_addr+DMA_CONTROL_OFST,	DMA_CTRL_SWRST_MSK); 	// write twice to do software reset
-	alt_write_word(h2p_dma_addr+DMA_CONTROL_OFST,	DMA_CTRL_SWRST_MSK); 	// software resetted
-	alt_write_word(h2p_dma_addr+DMA_STATUS_OFST,	0x0); 					// clear the DONE bit
-	alt_write_word(h2p_dma_addr+DMA_READADDR_OFST,	ADC_FIFO_MEM_OUT_BASE); // set DMA read address
-	alt_write_word(h2p_dma_addr+DMA_WRITEADDR_OFST,	SDRAM_BASE);			// set DMA write address
-	alt_write_word(h2p_dma_addr+DMA_LENGTH_OFST,	transfer_length*4);		// set transfer length (in byte, so multiply by 4 to get word-addressing)
-	alt_write_word(h2p_dma_addr+DMA_CONTROL_OFST,	(DMA_CTRL_WORD_MSK|DMA_CTRL_LEEN_MSK|DMA_CTRL_RCON_MSK)); // set settings for transfer
-	alt_write_word(h2p_dma_addr+DMA_CONTROL_OFST,	(DMA_CTRL_WORD_MSK|DMA_CTRL_LEEN_MSK|DMA_CTRL_RCON_MSK|DMA_CTRL_GO_MSK)); // set settings & also enable transfer
+	fifo_to_sdram_dma_trf (transfer_length);
 
 	unsigned int dma_status;
 	do {
@@ -743,324 +747,6 @@ void fifo_to_sdram_dma_trf (uint32_t transfer_length, uint8_t en_mesg) {
 		rddata_16[i_sd*2] = fifo_data_read & 0x3FFF;
 		rddata_16[i_sd*2+1] = (fifo_data_read>>16) & 0x3FFF;
 	}
-}
-
-// duty cycle is not functioning anymore
-void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double pulse1_dtcl, double pulse2_dtcl, double echo_spacing_us, long unsigned scan_spacing_us, unsigned int samples_per_echo, unsigned int echoes_per_scan, double init_adc_delay_compensation, uint32_t ph_cycl_en, char * filename, char * avgname, uint32_t enable_message) {
-	unsigned int cpmg_param [5];
-	double adc_ltc1746_freq = cpmg_freq*4;
-	double nmr_fsm_clkfreq = cpmg_freq*16;
-
-	double init_delay_inherent = 2.25; // inherehent delay factor from the HDL structure, in ADC clock cycles
-
-	uint8_t read_with_dma = 1; // else the program reads data directly from the fifo
-
-	usleep(scan_spacing_us);
-
-	// read the current ctrl_out
-	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
-
-	// local variables
-	uint32_t fifo_mem_level; // the fill level of fifo memory
-
-	usleep(100);
-
-	cpmg_param_calculator_ltc1746(
-		cpmg_param,
-		nmr_fsm_clkfreq,
-		cpmg_freq,
-		adc_ltc1746_freq,
-		init_adc_delay_compensation,
-		pulse1_us,
-		pulse2_us,
-		echo_spacing_us,
-		samples_per_echo
-	);
-
-	alt_write_word( (h2p_pulse1_addr) , cpmg_param[PULSE1_OFFST] );
-	alt_write_word( (h2p_delay1_addr) , cpmg_param[DELAY1_OFFST] );
-	alt_write_word( (h2p_pulse2_addr) , cpmg_param[PULSE2_OFFST] );
-	alt_write_word( (h2p_delay2_addr) , cpmg_param[DELAY2_OFFST] );
-	alt_write_word( (h2p_init_adc_delay_addr) , cpmg_param[INIT_DELAY_ADC_OFFST] );
-	alt_write_word( (h2p_echo_per_scan_addr) , echoes_per_scan );
-	alt_write_word( (h2p_adc_samples_per_echo_addr) , samples_per_echo );
-
-	if (enable_message) {
-		printf("CPMG Sequence Actual Parameter:\n");
-		printf("\tPulse 1\t\t\t: %7.3f us (%d)\n", (double)cpmg_param[PULSE1_OFFST]/nmr_fsm_clkfreq, cpmg_param[PULSE1_OFFST]);
-		printf("\tDelay 1\t\t\t: %7.3f us (%d)\n", (double)cpmg_param[DELAY1_OFFST]/nmr_fsm_clkfreq, cpmg_param[DELAY1_OFFST]);
-		printf("\tPulse 2\t\t\t: %7.3f us (%d)\n", (double)cpmg_param[PULSE2_OFFST]/nmr_fsm_clkfreq, cpmg_param[PULSE2_OFFST]);
-		printf("\tDelay 2\t\t\t: %7.3f us (%d)\n", (double)cpmg_param[DELAY2_OFFST]/nmr_fsm_clkfreq, cpmg_param[DELAY2_OFFST]);
-		printf("\tADC init delay\t: %7.3f us (%d) -not-precise\n", ((double)cpmg_param[INIT_DELAY_ADC_OFFST]+init_delay_inherent)/adc_ltc1746_freq, cpmg_param[INIT_DELAY_ADC_OFFST]);
-		printf("\tADC acq window\t: %7.3f us (%d)\n", ((double)samples_per_echo)/adc_ltc1746_freq, samples_per_echo);
-	}
-	if (cpmg_param[INIT_DELAY_ADC_OFFST] < 2) {
-		printf("\tWARNING: Computed ADC_init_delay is less than 2, ADC_init_delay is force driven to 2 inside the HDL!");
-	}
-
-	// set pll for CPMG
-	Set_PLL (h2p_nmr_sys_pll_addr, 0, nmr_fsm_clkfreq, 0.5, DISABLE_MESSAGE);
-	Reset_PLL (h2p_ctrl_out_addr, PLL_NMR_SYS_RST_ofst, ctrl_out);
-	// Set_DPS (h2p_nmr_sys_pll_addr, 0, 0, DISABLE_MESSAGE);
-	Wait_PLL_To_Lock (h2p_ctrl_in_addr, PLL_NMR_SYS_lock_ofst);
-
-
-	// cycle phase for CPMG measurement
-	if (ph_cycl_en == ENABLE) {
-		if (ctrl_out & (0x01<<PHASE_CYCLING_ofst)) {
-			ctrl_out &= ~(0x01<<PHASE_CYCLING_ofst);
-		}
-		else {
-			ctrl_out |= (0x01<<PHASE_CYCLING_ofst);
-		}
-		alt_write_word( (h2p_ctrl_out_addr) , ctrl_out );
-		usleep(10);
-	}
-
-	// reset the selected ADC (the ADC reset was omitted)
-	// alt_write_word( (h2p_ctrl_out_addr) , ctrl_out | (0x01<<ADC_LTC1746_RST_ofst) );
-	// usleep(10);
-	// alt_write_word( (h2p_ctrl_out_addr) , ctrl_out & ~(0x01<<ADC_LTC1746_RST_ofst) );
-	// usleep(10);
-
-
-	// reset buffer
-	ctrl_out |= (0x01<<ADC_FIFO_RST_ofst);
-	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out );
-	usleep(10);
-	ctrl_out &= ~(0x01<<ADC_FIFO_RST_ofst);
-	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out );
-	usleep(10);
-
-	// start fsm
-	// it will reset the pll as well, so it's important to set the phase
-	// the pll_rst_dly should be longer than the delay coming from changing the phase
-	// otherwise, the fsm will start with wrong relationship between 4 pll output clocks (1/2 pi difference between clock)
-	// alt_write_word( (h2p_nmr_pll_rst_dly_addr) , 1000000 );	// set the amount of delay for pll reset (with 50MHz system clock, every tick means 20ns) -> default: 100000
-	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
-	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out | (0x01<<FSM_START_ofst) );
-	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out & ~(0x01<<FSM_START_ofst) );
-	// shift the pll phase accordingly
-	// Set_DPS (h2p_nmr_pll_addr, 0, 0, DISABLE_MESSAGE);
-	// Set_DPS (h2p_nmr_pll_addr, 1, 90, DISABLE_MESSAGE);
-	// Set_DPS (h2p_nmr_pll_addr, 2, 180, DISABLE_MESSAGE);
-	// Set_DPS (h2p_nmr_pll_addr, 3, 270, DISABLE_MESSAGE);
-	// usleep(scan_spacing_us);
-
-	if (read_with_dma) { // if read with dma is intended
-		fifo_to_sdram_dma_trf(samples_per_echo*echoes_per_scan/2,DISABLE_MESSAGE);
-	}
-	else { // if read from fifo is intended
-		// wait until fsm stops
-		while ( alt_read_word(h2p_ctrl_in_addr) & (0x01<<NMR_SEQ_run_ofst) );
-		usleep(300);
-
-		// PRINT # of DATAS in FIFO
-		// fifo_mem_level = alt_read_word(h2p_adc_fifo_status_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
-		// printf("num of data in fifo: %d\n",fifo_mem_level);
-
-		// READING DATA FROM FIFO
-		fifo_mem_level = alt_read_word(h2p_adc_fifo_status_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
-		for (i=0; fifo_mem_level>0; i++) {			// FIFO is 32-bit, while 1-sample is only 16-bit. FIFO organize this automatically. So, fetch only amount_of_data shifted by 2 to get amount_of_data/2.
-			rddata[i] = alt_read_word(h2p_adc_fifo_addr);
-
-			fifo_mem_level--;
-			if (fifo_mem_level == 0) {
-				fifo_mem_level = alt_read_word(h2p_adc_fifo_status_addr+ALTERA_AVALON_FIFO_LEVEL_REG);
-			}
-			//usleep(1);
-		}
-		usleep(100);
-
-		if (i*2 == samples_per_echo*echoes_per_scan) { // if the amount of data captured matched with the amount of data being ordered, then continue the process. if not, then don't process the datas (requesting empty data from the fifo will cause the FPGA to crash, so this one is to avoid that)
-			// printf("number of captured data vs requested data : MATCHED\n");
-
-			j=0;
-			for(i=0; i < ( ((long)samples_per_echo*(long)echoes_per_scan)>>1 ); i++) {
-				rddata_16[j++] = (rddata[i] & 0x3FFF);		// 14 significant bit
-				rddata_16[j++] = ((rddata[i]>>16)&0x3FFF);	// 14 significant bit
-			}
-
-		}
-		else { // if the amount of data captured didn't match the amount of data being ordered, then something's going on with the acquisition
-			printf("[ERROR] number of data captured (%ld) and data ordered (%d): NOT MATCHED\nData are flushed!\nReconfigure the FPGA immediately\n", i*2, samples_per_echo*echoes_per_scan);
-		}
-	}
-
-	// write the raw data from adc to a file
-	sprintf(pathname,"%s/%s",foldername,filename);	// put the data into the data folder
-	fptr = fopen(pathname, "w");
-	if (fptr == NULL) {
-		printf("File does not exists \n");
-	}
-	for(i=0; i < ( ((long)samples_per_echo*(long)echoes_per_scan) ); i++) {
-		fprintf(fptr, "%d\n", rddata_16[i]);
-	}
-	fclose(fptr);
-
-	// write the averaged data to a file
-	unsigned int avr_data[samples_per_echo];
-	// initialize array
-	for (i=0; i<samples_per_echo; i++) {
-		avr_data[i] = 0;
-	};
-	for (i=0; i<samples_per_echo; i++) {
-		for (j=i; j<( ((long)samples_per_echo*(long)echoes_per_scan) ); j+=samples_per_echo) {
-			avr_data[i] += rddata_16[j];
-		}
-	}
-	sprintf(pathname,"%s/%s",foldername,avgname);	// put the data into the data folder
-	fptr = fopen(pathname, "w");
-	if (fptr == NULL) {
-		printf("File does not exists \n");
-	}
-	for (i=0; i<samples_per_echo; i++) {
-		fprintf(fptr, "%d\n", avr_data[i]);
-	}
-	fclose(fptr);
-
-
-
-}
-
-void FID (double cpmg_freq, double pulse2_us, double pulse2_dtcl, long unsigned scan_spacing_us, unsigned int samples_per_echo, char * filename, uint32_t enable_message) {
-	double adc_ltc1746_freq = cpmg_freq*4;
-	double nmr_fsm_clkfreq = cpmg_freq*16;
-	uint8_t read_with_dma = 1; // else the program reads data directly from the fifo
-
-	usleep(scan_spacing_us);
-
-	// read the current ctrl_out
-	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
-
-	// local variables
-	uint32_t fifo_mem_level; // the fill level of fifo memory
-
-	unsigned int pulse2_int = (unsigned int)(round(pulse2_us * nmr_fsm_clkfreq));	// the number of 180 deg pulse in the multiplication of cpmg pulse period (discrete value, no continuous number supported)
-	unsigned int delay2_int = (unsigned int) (samples_per_echo*(nmr_fsm_clkfreq/adc_ltc1746_freq)*2);	// the number of delay after 180 deg pulse. It is simply samples_per_echo multiplied by (nmr_fsm_clkfreq/adc_ltc1746_freq) factor, as the delay2_int is counted by nmr_fsm_clkfreq, not by adc_ltc1746_freq. It is also multiplied by a constant 2 as safety factor to make sure the ADC acquisition is inside FSMSTAT (refer to HDL) 'on' window.
-	unsigned int fixed_init_adc_delay = 2; // set to the minimum delay values, which is 2 (limited by HDL structure).
-	unsigned int fixed_echo_per_scan = 1; // it must be 1, otherwise the HDL will go to undefined state.
-	double init_delay_inherent; // inherehent delay factor from the HDL structure. The minimum is 2.25 no matter how small the delay is set. Look ERRATA
-	if (fixed_init_adc_delay <= 2) {
-		init_delay_inherent = 2.25;
-	}
-	else { // if fixed_init_adc_delay is more than 2
-		init_delay_inherent = (double) fixed_init_adc_delay + 0.25; // look at ERRATA from the HDL to get 0.25
-	}
-
-	alt_write_word( (h2p_pulse1_addr) , 0 );
-	alt_write_word( (h2p_delay1_addr) , 0 );
-	alt_write_word( (h2p_pulse2_addr) , pulse2_int );
-	alt_write_word( (h2p_delay2_addr) , delay2_int );
-	alt_write_word( (h2p_init_adc_delay_addr) , fixed_init_adc_delay );
-	alt_write_word( (h2p_echo_per_scan_addr) , fixed_echo_per_scan );
-	alt_write_word( (h2p_adc_samples_per_echo_addr) , samples_per_echo );
-
-	if (enable_message) {
-		printf("CPMG Sequence Actual Parameter:\n");
-		printf("\tPulse 2\t\t\t: %7.3f us (%d)\n", (double)pulse2_int/nmr_fsm_clkfreq, pulse2_int);
-		printf("\tDelay 2\t\t\t: %7.3f us (%d)\n", (double)delay2_int/nmr_fsm_clkfreq, delay2_int);
-		printf("\tADC init delay\t: %7.3f us (%d) --imprecise\n", init_delay_inherent/adc_ltc1746_freq, fixed_init_adc_delay );
-		printf("\tADC acq window\t: %7.3f us (%d)\n", ((double)samples_per_echo)/adc_ltc1746_freq, samples_per_echo);
-	}
-	if (fixed_init_adc_delay < 2) {
-		printf("\tWARNING: Computed ADC_init_delay is less than 2, ADC_init_delay is force driven to 2 inside the HDL!");
-	}
-
-	// set pll for CPMG system
-	Set_PLL (h2p_nmr_sys_pll_addr, 0, nmr_fsm_clkfreq, 0.5, DISABLE_MESSAGE);	// set pll frequency
-	Reset_PLL (h2p_ctrl_out_addr, PLL_NMR_SYS_RST_ofst, ctrl_out);				// reset pll, changes the phase
-	Set_DPS (h2p_nmr_sys_pll_addr, 0, 0, DISABLE_MESSAGE); 						// set pll phase to 0 (might not be needed)
-	Wait_PLL_To_Lock (h2p_ctrl_in_addr, PLL_NMR_SYS_lock_ofst);					// wait for pll to lock
-
-	// set a fix phase cycle state
-	ctrl_out &= ~(0x01<<PHASE_CYCLING_ofst);
-	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out );
-	usleep(10);
-
-	// reset the selected ADC (the ADC reset was omitted)
-	// alt_write_word( (h2p_ctrl_out_addr) , ctrl_out | (0x01<<ADC_LTC1746_RST_ofst) );
-	// usleep(10);
-	// alt_write_word( (h2p_ctrl_out_addr) , ctrl_out & ~(0x01<<ADC_LTC1746_RST_ofst) );
-	// usleep(10);
-
-
-	// reset ADC buffer
-	ctrl_out |= (0x01<<ADC_FIFO_RST_ofst);
-	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out );
-	usleep(10);
-	ctrl_out &= ~(0x01<<ADC_FIFO_RST_ofst);
-	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out );
-	usleep(10);
-
-	// start fsm
-	// it will reset the pll as well, so it's important to set the phase
-	// the pll_rst_dly should be longer than the delay coming from changing the phase
-	// otherwise, the fsm will start with wrong relationship between 4 pll output clocks (1/2 pi difference between clock)
-	// alt_write_word( (h2p_nmr_pll_rst_dly_addr) , 1000000 );	// set the amount of delay for pll reset (with 50MHz system clock, every tick means 20ns) -> default: 100000
-	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
-	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out | (0x01<<FSM_START_ofst) );
-	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out & ~(0x01<<FSM_START_ofst) );
-	// shift the pll phase accordingly
-	// Set_DPS (h2p_nmr_pll_addr, 0, 0, DISABLE_MESSAGE);
-	// Set_DPS (h2p_nmr_pll_addr, 1, 90, DISABLE_MESSAGE);
-	// Set_DPS (h2p_nmr_pll_addr, 2, 180, DISABLE_MESSAGE);
-	// Set_DPS (h2p_nmr_pll_addr, 3, 270, DISABLE_MESSAGE);
-	// usleep(scan_spacing_us);
-
-	if (read_with_dma) { // if read with dma is intended
-		fifo_to_sdram_dma_trf(samples_per_echo,DISABLE_MESSAGE);
-	}
-	else { // if read from fifo is intended
-		// wait until fsm stops
-		while ( alt_read_word(h2p_ctrl_in_addr) & (0x01<<NMR_SEQ_run_ofst) );
-		usleep(300);
-
-		// PRINT # of DATAS in FIFO
-		// fifo_mem_level = alt_read_word(h2p_adc_fifo_status_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
-		// printf("num of data in fifo: %d\n",fifo_mem_level);
-
-		// READING DATA FROM FIFO
-		fifo_mem_level = alt_read_word(h2p_adc_fifo_status_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
-		for (i=0; fifo_mem_level>0; i++) {			// FIFO is 32-bit, while 1-sample is only 16-bit. FIFO organize this automatically. So, fetch only amount_of_data shifted by 2 to get amount_of_data/2.
-			rddata[i] = alt_read_word(h2p_adc_fifo_addr);
-
-			fifo_mem_level--;
-			if (fifo_mem_level == 0) {
-				fifo_mem_level = alt_read_word(h2p_adc_fifo_status_addr+ALTERA_AVALON_FIFO_LEVEL_REG);
-			}
-			//usleep(1);
-		}
-		usleep(100);
-
-		if (i*2 == samples_per_echo) { // if the amount of data captured matched with the amount of data being ordered, then continue the process. if not, then don't process the datas (requesting empty data from the fifo will cause the FPGA to crash, so this one is to avoid that)
-			// printf("number of captured data vs requested data : MATCHED\n");
-
-			j=0;
-			for(i=0; i < ( ((long)samples_per_echo)>>1 ); i++) {
-				rddata_16[j++] = (rddata[i] & 0x3FFF);		// 14 significant bit
-				rddata_16[j++] = ((rddata[i]>>16)&0x3FFF);	// 14 significant bit
-			}
-
-		}
-		else { // if the amount of data captured didn't match the amount of data being ordered, then something's going on with the acquisition
-			printf("[ERROR] number of data captured (%ld) and data ordered (%d): NOT MATCHED\nData are flushed!\nReconfigure the FPGA immediately\n", i*2, samples_per_echo);
-		}
-	}
-
-	// write the raw data from adc to a file
-	sprintf(pathname,"%s/%s",foldername,filename);	// put the data into the data folder
-	fptr = fopen(pathname, "w");
-	if (fptr == NULL) {
-		printf("File does not exists \n");
-	}
-	for(i=0; i < ( ((long)samples_per_echo) ); i++) {
-		fprintf(fptr, "%d\n", rddata_16[i]);
-	}
-	fclose(fptr);
-
-
-
 }
 
 void tx_sampling(double tx_freq, double samp_freq, unsigned int tx_num_of_samples, char * filename) {
@@ -1264,6 +950,190 @@ void noise_sampling (unsigned char signal_path, unsigned int num_of_samples, cha
 	}
 }
 
+// duty cycle is not functioning anymore
+void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double pulse1_dtcl, double pulse2_dtcl, double echo_spacing_us, long unsigned scan_spacing_us, unsigned int samples_per_echo, unsigned int echoes_per_scan, double init_adc_delay_compensation, uint32_t ph_cycl_en, char * filename, char * avgname, uint32_t enable_message) {
+	unsigned int cpmg_param [5];
+	double adc_ltc1746_freq = cpmg_freq*4;
+	double nmr_fsm_clkfreq = cpmg_freq*16;
+
+	double init_delay_inherent = 2.25; // inherehent delay factor from the HDL structure, in ADC clock cycles
+
+	// read settings
+	uint8_t data_nowrite = 0; // do not write the data from fifo to text file (external reading mechanism should be implemented)
+	uint8_t read_with_dma = 1; // else the program reads data directly from the fifo
+
+	usleep(scan_spacing_us);
+
+	// read the current ctrl_out
+	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
+
+	// local variables
+	uint32_t fifo_mem_level; // the fill level of fifo memory
+
+	usleep(100);
+
+	cpmg_param_calculator_ltc1746(
+		cpmg_param,
+		nmr_fsm_clkfreq,
+		cpmg_freq,
+		adc_ltc1746_freq,
+		init_adc_delay_compensation,
+		pulse1_us,
+		pulse2_us,
+		echo_spacing_us,
+		samples_per_echo
+	);
+
+	alt_write_word( (h2p_pulse1_addr) , cpmg_param[PULSE1_OFFST] );
+	alt_write_word( (h2p_delay1_addr) , cpmg_param[DELAY1_OFFST] );
+	alt_write_word( (h2p_pulse2_addr) , cpmg_param[PULSE2_OFFST] );
+	alt_write_word( (h2p_delay2_addr) , cpmg_param[DELAY2_OFFST] );
+	alt_write_word( (h2p_init_adc_delay_addr) , cpmg_param[INIT_DELAY_ADC_OFFST] );
+	alt_write_word( (h2p_echo_per_scan_addr) , echoes_per_scan );
+	alt_write_word( (h2p_adc_samples_per_echo_addr) , samples_per_echo );
+
+	if (enable_message) {
+		printf("CPMG Sequence Actual Parameter:\n");
+		printf("\tPulse 1\t\t\t: %7.3f us (%d)\n", (double)cpmg_param[PULSE1_OFFST]/nmr_fsm_clkfreq, cpmg_param[PULSE1_OFFST]);
+		printf("\tDelay 1\t\t\t: %7.3f us (%d)\n", (double)cpmg_param[DELAY1_OFFST]/nmr_fsm_clkfreq, cpmg_param[DELAY1_OFFST]);
+		printf("\tPulse 2\t\t\t: %7.3f us (%d)\n", (double)cpmg_param[PULSE2_OFFST]/nmr_fsm_clkfreq, cpmg_param[PULSE2_OFFST]);
+		printf("\tDelay 2\t\t\t: %7.3f us (%d)\n", (double)cpmg_param[DELAY2_OFFST]/nmr_fsm_clkfreq, cpmg_param[DELAY2_OFFST]);
+		printf("\tADC init delay\t: %7.3f us (%d) -not-precise\n", ((double)cpmg_param[INIT_DELAY_ADC_OFFST]+init_delay_inherent)/adc_ltc1746_freq, cpmg_param[INIT_DELAY_ADC_OFFST]);
+		printf("\tADC acq window\t: %7.3f us (%d)\n", ((double)samples_per_echo)/adc_ltc1746_freq, samples_per_echo);
+	}
+	if (cpmg_param[INIT_DELAY_ADC_OFFST] < 2) {
+		printf("\tWARNING: Computed ADC_init_delay is less than 2, ADC_init_delay is force driven to 2 inside the HDL!");
+	}
+
+	// set pll for CPMG
+	Set_PLL (h2p_nmr_sys_pll_addr, 0, nmr_fsm_clkfreq, 0.5, DISABLE_MESSAGE);
+	Reset_PLL (h2p_ctrl_out_addr, PLL_NMR_SYS_RST_ofst, ctrl_out);
+	// Set_DPS (h2p_nmr_sys_pll_addr, 0, 0, DISABLE_MESSAGE);
+	Wait_PLL_To_Lock (h2p_ctrl_in_addr, PLL_NMR_SYS_lock_ofst);
+
+
+	// cycle phase for CPMG measurement
+	if (ph_cycl_en == ENABLE) {
+		if (ctrl_out & (0x01<<PHASE_CYCLING_ofst)) {
+			ctrl_out &= ~(0x01<<PHASE_CYCLING_ofst);
+		}
+		else {
+			ctrl_out |= (0x01<<PHASE_CYCLING_ofst);
+		}
+		alt_write_word( (h2p_ctrl_out_addr) , ctrl_out );
+		usleep(10);
+	}
+
+	// reset the selected ADC (the ADC reset was omitted)
+	// alt_write_word( (h2p_ctrl_out_addr) , ctrl_out | (0x01<<ADC_LTC1746_RST_ofst) );
+	// usleep(10);
+	// alt_write_word( (h2p_ctrl_out_addr) , ctrl_out & ~(0x01<<ADC_LTC1746_RST_ofst) );
+	// usleep(10);
+
+
+	// reset buffer
+	ctrl_out |= (0x01<<ADC_FIFO_RST_ofst);
+	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out );
+	usleep(10);
+	ctrl_out &= ~(0x01<<ADC_FIFO_RST_ofst);
+	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out );
+	usleep(10);
+
+	// start fsm
+	// it will reset the pll as well, so it's important to set the phase
+	// the pll_rst_dly should be longer than the delay coming from changing the phase
+	// otherwise, the fsm will start with wrong relationship between 4 pll output clocks (1/2 pi difference between clock)
+	// alt_write_word( (h2p_nmr_pll_rst_dly_addr) , 1000000 );	// set the amount of delay for pll reset (with 50MHz system clock, every tick means 20ns) -> default: 100000
+	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
+	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out | (0x01<<FSM_START_ofst) );
+	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out & ~(0x01<<FSM_START_ofst) );
+	// shift the pll phase accordingly
+	// Set_DPS (h2p_nmr_pll_addr, 0, 0, DISABLE_MESSAGE);
+	// Set_DPS (h2p_nmr_pll_addr, 1, 90, DISABLE_MESSAGE);
+	// Set_DPS (h2p_nmr_pll_addr, 2, 180, DISABLE_MESSAGE);
+	// Set_DPS (h2p_nmr_pll_addr, 3, 270, DISABLE_MESSAGE);
+	// usleep(scan_spacing_us);
+
+	if (!data_nowrite) { // write data to text with C programming
+		if (read_with_dma) { // if read with dma is intended
+			datawrite_with_dma(samples_per_echo*echoes_per_scan/2,DISABLE_MESSAGE);
+		}
+		else { // if read from fifo is intended
+			// wait until fsm stops
+			while ( alt_read_word(h2p_ctrl_in_addr) & (0x01<<NMR_SEQ_run_ofst) );
+			usleep(300);
+
+			// PRINT # of DATAS in FIFO
+			// fifo_mem_level = alt_read_word(h2p_adc_fifo_status_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
+			// printf("num of data in fifo: %d\n",fifo_mem_level);
+
+			// READING DATA FROM FIFO
+			fifo_mem_level = alt_read_word(h2p_adc_fifo_status_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
+			for (i=0; fifo_mem_level>0; i++) {			// FIFO is 32-bit, while 1-sample is only 16-bit. FIFO organize this automatically. So, fetch only amount_of_data shifted by 2 to get amount_of_data/2.
+				rddata[i] = alt_read_word(h2p_adc_fifo_addr);
+
+				fifo_mem_level--;
+				if (fifo_mem_level == 0) {
+					fifo_mem_level = alt_read_word(h2p_adc_fifo_status_addr+ALTERA_AVALON_FIFO_LEVEL_REG);
+				}
+				//usleep(1);
+			}
+			usleep(100);
+
+			if (i*2 == samples_per_echo*echoes_per_scan) { // if the amount of data captured matched with the amount of data being ordered, then continue the process. if not, then don't process the datas (requesting empty data from the fifo will cause the FPGA to crash, so this one is to avoid that)
+				// printf("number of captured data vs requested data : MATCHED\n");
+
+				j=0;
+				for(i=0; i < ( ((long)samples_per_echo*(long)echoes_per_scan)>>1 ); i++) {
+					rddata_16[j++] = (rddata[i] & 0x3FFF);		// 14 significant bit
+					rddata_16[j++] = ((rddata[i]>>16)&0x3FFF);	// 14 significant bit
+				}
+
+			}
+			else { // if the amount of data captured didn't match the amount of data being ordered, then something's going on with the acquisition
+				printf("[ERROR] number of data captured (%ld) and data ordered (%d): NOT MATCHED\nData are flushed!\nReconfigure the FPGA immediately\n", i*2, samples_per_echo*echoes_per_scan);
+			}
+		}
+
+		// write the raw data from adc to a file
+		sprintf(pathname,"%s/%s",foldername,filename);	// put the data into the data folder
+		fptr = fopen(pathname, "w");
+		if (fptr == NULL) {
+			printf("File does not exists \n");
+		}
+		for(i=0; i < ( ((long)samples_per_echo*(long)echoes_per_scan) ); i++) {
+			fprintf(fptr, "%d\n", rddata_16[i]);
+		}
+		fclose(fptr);
+
+		// write the averaged data to a file
+		unsigned int avr_data[samples_per_echo];
+		// initialize array
+		for (i=0; i<samples_per_echo; i++) {
+			avr_data[i] = 0;
+		};
+		for (i=0; i<samples_per_echo; i++) {
+			for (j=i; j<( ((long)samples_per_echo*(long)echoes_per_scan) ); j+=samples_per_echo) {
+				avr_data[i] += rddata_16[j];
+			}
+		}
+		sprintf(pathname,"%s/%s",foldername,avgname);	// put the data into the data folder
+		fptr = fopen(pathname, "w");
+		if (fptr == NULL) {
+			printf("File does not exists \n");
+		}
+		for (i=0; i<samples_per_echo; i++) {
+			fprintf(fptr, "%d\n", avr_data[i]);
+		}
+		fclose(fptr);
+	}
+	else { // do not write data to text with C programming: external mechanism should be implemented
+		fifo_to_sdram_dma_trf (samples_per_echo*echoes_per_scan/2); // start DMA process
+		//while ( alt_read_word(h2p_ctrl_in_addr) & (0x01<<NMR_SEQ_run_ofst) ); // might not be needed as the system will wait until data is available anyway
+	}
+
+}
+
 void CPMG_iterate (
 	double cpmg_freq,
 	double pulse1_us,
@@ -1285,7 +1155,7 @@ void CPMG_iterate (
 	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
 
 	create_measurement_folder("cpmg");
-	printf("Approximated measurement time : %.2f mins\n",( scan_spacing_us*(double)number_of_iteration) *1e-6/60);
+	// printf("Approximated measurement time : %.2f mins\n",( scan_spacing_us*(double)number_of_iteration) *1e-6/60);
 
 	unsigned int cpmg_param [5];
 	cpmg_param_calculator_ltc1746(
@@ -1348,6 +1218,9 @@ void CPMG_iterate (
 	char *nameavg;
 	nameavg = (char*) malloc (FILENAME_LENGTH*sizeof(char));
 
+	int Asum[samples_per_echo*echoes_per_scan];
+	for (i=0; i<samples_per_echo*echoes_per_scan; i++) Asum[i] = 0;
+
 	for (iterate=1; iterate<=number_of_iteration; iterate++) {
 		// printf("\n*** RUN %d ***\n",iterate);
 
@@ -1371,10 +1244,167 @@ void CPMG_iterate (
 			DISABLE_MESSAGE
 		);
 
+		// process the data
+		if (ph_cycl_en) {
+			if (iterate % 2 == 0)
+				for (i=0; i<samples_per_echo*echoes_per_scan; i++) Asum[i]-=rddata_16[i];
+			else
+				for (i=0; i<samples_per_echo*echoes_per_scan; i++) Asum[i]+=rddata_16[i];
+		}
+		else {
+			for (i=0; i<samples_per_echo*echoes_per_scan; i++) Asum[i]+=rddata_16[i];
+		}
+
 	}
+
+	sprintf(pathname,"%s/%s",foldername,"asum");	// put the data into the data folder
+	fptr = fopen(pathname, "w");
+	for(i=0; i<samples_per_echo*echoes_per_scan; i++) fprintf(fptr, "%d\n", Asum[i]);
+	fclose(fptr);
+
 
 	free(name);
 	free(nameavg);
+
+}
+
+void FID (double cpmg_freq, double pulse2_us, double pulse2_dtcl, long unsigned scan_spacing_us, unsigned int samples_per_echo, char * filename, uint32_t enable_message) {
+	double adc_ltc1746_freq = cpmg_freq*4;
+	double nmr_fsm_clkfreq = cpmg_freq*16;
+	uint8_t read_with_dma = 1; // else the program reads data directly from the fifo
+
+	usleep(scan_spacing_us);
+
+	// read the current ctrl_out
+	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
+
+	// local variables
+	uint32_t fifo_mem_level; // the fill level of fifo memory
+
+	unsigned int pulse2_int = (unsigned int)(round(pulse2_us * nmr_fsm_clkfreq));	// the number of 180 deg pulse in the multiplication of cpmg pulse period (discrete value, no continuous number supported)
+	unsigned int delay2_int = (unsigned int) (round(samples_per_echo*(nmr_fsm_clkfreq/adc_ltc1746_freq)*10));	// the number of delay after 180 deg pulse. It is simply samples_per_echo multiplied by (nmr_fsm_clkfreq/adc_ltc1746_freq) factor, as the delay2_int is counted by nmr_fsm_clkfreq, not by adc_ltc1746_freq. It is also multiplied by a constant 10 as safety factor to make sure the ADC acquisition is inside FSMSTAT (refer to HDL) 'on' window.
+	unsigned int fixed_init_adc_delay = 2; // set to the minimum delay values, which is 2 (limited by HDL structure).
+	unsigned int fixed_echo_per_scan = 1; // it must be 1, otherwise the HDL will go to undefined state.
+	double init_delay_inherent; // inherehent delay factor from the HDL structure. The minimum is 2.25 no matter how small the delay is set. Look ERRATA
+	if (fixed_init_adc_delay <= 2) {
+		init_delay_inherent = 2.25;
+	}
+	else { // if fixed_init_adc_delay is more than 2
+		init_delay_inherent = (double) fixed_init_adc_delay + 0.25; // look at ERRATA from the HDL to get 0.25
+	}
+
+	alt_write_word( (h2p_pulse1_addr) , 0 );
+	alt_write_word( (h2p_delay1_addr) , 0 );
+	alt_write_word( (h2p_pulse2_addr) , pulse2_int );
+	alt_write_word( (h2p_delay2_addr) , delay2_int );
+	alt_write_word( (h2p_init_adc_delay_addr) , fixed_init_adc_delay );
+	alt_write_word( (h2p_echo_per_scan_addr) , fixed_echo_per_scan );
+	alt_write_word( (h2p_adc_samples_per_echo_addr) , samples_per_echo );
+
+	if (enable_message) {
+		printf("CPMG Sequence Actual Parameter:\n");
+		printf("\tPulse 2\t\t\t: %7.3f us (%d)\n", (double)pulse2_int/nmr_fsm_clkfreq, pulse2_int);
+		printf("\tDelay 2\t\t\t: %7.3f us (%d)\n", (double)delay2_int/nmr_fsm_clkfreq, delay2_int);
+		printf("\tADC init delay\t: %7.3f us (%d) --imprecise\n", init_delay_inherent/adc_ltc1746_freq, fixed_init_adc_delay );
+		printf("\tADC acq window\t: %7.3f us (%d)\n", ((double)samples_per_echo)/adc_ltc1746_freq, samples_per_echo);
+	}
+	if (fixed_init_adc_delay < 2) {
+		printf("\tWARNING: Computed ADC_init_delay is less than 2, ADC_init_delay is force driven to 2 inside the HDL!");
+	}
+
+	// set pll for CPMG system
+	Set_PLL (h2p_nmr_sys_pll_addr, 0, nmr_fsm_clkfreq, 0.5, DISABLE_MESSAGE);	// set pll frequency
+	Reset_PLL (h2p_ctrl_out_addr, PLL_NMR_SYS_RST_ofst, ctrl_out);				// reset pll, changes the phase
+	Set_DPS (h2p_nmr_sys_pll_addr, 0, 0, DISABLE_MESSAGE); 						// set pll phase to 0 (might not be needed)
+	Wait_PLL_To_Lock (h2p_ctrl_in_addr, PLL_NMR_SYS_lock_ofst);					// wait for pll to lock
+
+	// set a fix phase cycle state
+	ctrl_out &= ~(0x01<<PHASE_CYCLING_ofst);
+	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out );
+	usleep(10);
+
+	// reset the selected ADC (the ADC reset was omitted)
+	// alt_write_word( (h2p_ctrl_out_addr) , ctrl_out | (0x01<<ADC_LTC1746_RST_ofst) );
+	// usleep(10);
+	// alt_write_word( (h2p_ctrl_out_addr) , ctrl_out & ~(0x01<<ADC_LTC1746_RST_ofst) );
+	// usleep(10);
+
+
+	// reset ADC buffer
+	ctrl_out |= (0x01<<ADC_FIFO_RST_ofst);
+	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out );
+	usleep(10);
+	ctrl_out &= ~(0x01<<ADC_FIFO_RST_ofst);
+	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out );
+	usleep(10);
+
+	// start fsm
+	// it will reset the pll as well, so it's important to set the phase
+	// the pll_rst_dly should be longer than the delay coming from changing the phase
+	// otherwise, the fsm will start with wrong relationship between 4 pll output clocks (1/2 pi difference between clock)
+	// alt_write_word( (h2p_nmr_pll_rst_dly_addr) , 1000000 );	// set the amount of delay for pll reset (with 50MHz system clock, every tick means 20ns) -> default: 100000
+	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
+	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out | (0x01<<FSM_START_ofst) );
+	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out & ~(0x01<<FSM_START_ofst) );
+	// shift the pll phase accordingly
+	// Set_DPS (h2p_nmr_pll_addr, 0, 0, DISABLE_MESSAGE);
+	// Set_DPS (h2p_nmr_pll_addr, 1, 90, DISABLE_MESSAGE);
+	// Set_DPS (h2p_nmr_pll_addr, 2, 180, DISABLE_MESSAGE);
+	// Set_DPS (h2p_nmr_pll_addr, 3, 270, DISABLE_MESSAGE);
+	// usleep(scan_spacing_us);
+
+	if (read_with_dma) { // if read with dma is intended
+		datawrite_with_dma (samples_per_echo/2,enable_message); // divided by 2 to compensate 2 symbol per beat in the fifo interface
+	}
+	else { // if read from fifo is intended
+		// wait until fsm stops
+		while ( alt_read_word(h2p_ctrl_in_addr) & (0x01<<NMR_SEQ_run_ofst) );
+		usleep(300);
+
+		// PRINT # of DATAS in FIFO
+		// fifo_mem_level = alt_read_word(h2p_adc_fifo_status_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
+		// printf("num of data in fifo: %d\n",fifo_mem_level);
+
+		// READING DATA FROM FIFO
+		fifo_mem_level = alt_read_word(h2p_adc_fifo_status_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
+		for (i=0; fifo_mem_level>0; i++) {			// FIFO is 32-bit, while 1-sample is only 16-bit. FIFO organize this automatically. So, fetch only amount_of_data shifted by 2 to get amount_of_data/2.
+			rddata[i] = alt_read_word(h2p_adc_fifo_addr);
+
+			fifo_mem_level--;
+			if (fifo_mem_level == 0) {
+				fifo_mem_level = alt_read_word(h2p_adc_fifo_status_addr+ALTERA_AVALON_FIFO_LEVEL_REG);
+			}
+			//usleep(1);
+		}
+		usleep(100);
+
+		if (i*2 == samples_per_echo) { // if the amount of data captured matched with the amount of data being ordered, then continue the process. if not, then don't process the datas (requesting empty data from the fifo will cause the FPGA to crash, so this one is to avoid that)
+			// printf("number of captured data vs requested data : MATCHED\n");
+
+			j=0;
+			for(i=0; i < ( ((long)samples_per_echo)>>1 ); i++) {
+				rddata_16[j++] = (rddata[i] & 0x3FFF);		// 14 significant bit
+				rddata_16[j++] = ((rddata[i]>>16)&0x3FFF);	// 14 significant bit
+			}
+
+		}
+		else { // if the amount of data captured didn't match the amount of data being ordered, then something's going on with the acquisition
+			printf("[ERROR] number of data captured (%ld) and data ordered (%d): NOT MATCHED\nData are flushed!\nReconfigure the FPGA immediately\n", i*2, samples_per_echo);
+		}
+	}
+
+	// write the raw data from adc to a file
+	sprintf(pathname,"%s/%s",foldername,filename);	// put the data into the data folder
+	fptr = fopen(pathname, "w");
+	if (fptr == NULL) {
+		printf("File does not exists \n");
+	}
+	for(i=0; i < ( ((long)samples_per_echo) ); i++) {
+		fprintf(fptr, "%d\n", rddata_16[i]);
+	}
+	fclose(fptr);
+
+
 
 }
 
@@ -1401,13 +1431,13 @@ void FID_iterate (
 
 	double init_adc_delay_compensation = init_delay_inherent /adc_ltc1746_freq;
 	unsigned int pulse2_int = (unsigned int)(round(pulse2_us * nmr_fsm_clkfreq));	// the number of 180 deg pulse in the multiplication of cpmg pulse period (discrete value, no continuous number supported)
-	unsigned int delay2_int = (unsigned int) (samples_per_echo*(nmr_fsm_clkfreq/adc_ltc1746_freq)*2);	// the number of delay after 180 deg pulse. It is simply samples_per_echo multiplied by (nmr_fsm_clkfreq/adc_ltc1746_freq) factor, as the delay2_int is counted by nmr_fsm_clkfreq, not by adc_ltc1746_freq. It is also multiplied by a constant 2 as safety factor to make sure the ADC acquisition is inside FSMSTAT (refer to HDL) 'on' window.
+	unsigned int delay2_int = (unsigned int) (samples_per_echo*(nmr_fsm_clkfreq/adc_ltc1746_freq)*10);	// the number of delay after 180 deg pulse. It is simply samples_per_echo multiplied by (nmr_fsm_clkfreq/adc_ltc1746_freq) factor, as the delay2_int is counted by nmr_fsm_clkfreq, not by adc_ltc1746_freq. It is also multiplied by a constant 2 as safety factor to make sure the ADC acquisition is inside FSMSTAT (refer to HDL) 'on' window.
 
 	// read the current ctrl_out
 	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
 
 	create_measurement_folder("fid");
-	printf("Approximated measurement time : %.2f mins\n",( scan_spacing_us*(double)number_of_iteration)*1e-6/60);
+	// printf("Approximated measurement time : %.2f mins\n",( scan_spacing_us*(double)number_of_iteration)*1e-6/60);
 
 	// print general measurement settings
 	sprintf(pathname,"%s/acqu.par",foldername);
@@ -1460,7 +1490,227 @@ void FID_iterate (
 			scan_spacing_us,				//scan_spacing_us
 			samples_per_echo,				//samples_per_echo
 			name,							//filename for data
-			DISABLE_MESSAGE
+			enable_message
+		);
+
+	}
+
+	free(name);
+
+}
+
+void noise (double cpmg_freq, long unsigned scan_spacing_us, unsigned int samples_per_echo, char * filename, uint32_t enable_message) {
+	double adc_ltc1746_freq = cpmg_freq*4;
+	double nmr_fsm_clkfreq = cpmg_freq*16;
+	uint8_t read_with_dma = 0; // else the program reads data directly from the fifo
+
+	usleep(scan_spacing_us);
+
+	// read the current ctrl_out
+	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
+
+	// local variables
+	uint32_t fifo_mem_level; // the fill level of fifo memory
+
+	unsigned int delay2_int = (unsigned int) (round(samples_per_echo*(nmr_fsm_clkfreq/adc_ltc1746_freq)*10));
+	unsigned int fixed_init_adc_delay = 2; // set to the minimum delay values, which is 2 (limited by HDL structure).
+	unsigned int fixed_echo_per_scan = 1; // it must be 1, otherwise the HDL will go to undefined state.
+	double init_delay_inherent; // inherehent delay factor from the HDL structure. The minimum is 2.25 no matter how small the delay is set. Look ERRATA
+	if (fixed_init_adc_delay <= 2) {
+		init_delay_inherent = 2.25;
+	}
+	else { // if fixed_init_adc_delay is more than 2
+		init_delay_inherent = (double) fixed_init_adc_delay + 0.25; // look at ERRATA from the HDL to get 0.25
+	}
+
+	alt_write_word( (h2p_pulse1_addr) , 0 );
+	alt_write_word( (h2p_delay1_addr) , 0 );
+	alt_write_word( (h2p_pulse2_addr) , 0 );
+	alt_write_word( (h2p_delay2_addr) , delay2_int );
+	alt_write_word( (h2p_init_adc_delay_addr) , fixed_init_adc_delay );
+	alt_write_word( (h2p_echo_per_scan_addr) , fixed_echo_per_scan );
+	alt_write_word( (h2p_adc_samples_per_echo_addr) , samples_per_echo );
+
+	if (enable_message) {
+		printf("CPMG Sequence Actual Parameter:\n");
+		printf("\tDelay 2\t\t\t: %7.3f us (%d)\n", (double)delay2_int/nmr_fsm_clkfreq, delay2_int);
+		printf("\tADC init delay\t: %7.3f us (%d) --imprecise\n", init_delay_inherent/adc_ltc1746_freq, fixed_init_adc_delay );
+		printf("\tADC acq window\t: %7.3f us (%d)\n", ((double)samples_per_echo)/adc_ltc1746_freq, samples_per_echo);
+	}
+	if (fixed_init_adc_delay < 2) {
+		printf("\tWARNING: Computed ADC_init_delay is less than 2, ADC_init_delay is force driven to 2 inside the HDL!");
+	}
+
+	// set pll for CPMG system
+	Set_PLL (h2p_nmr_sys_pll_addr, 0, nmr_fsm_clkfreq, 0.5, DISABLE_MESSAGE);	// set pll frequency
+	Reset_PLL (h2p_ctrl_out_addr, PLL_NMR_SYS_RST_ofst, ctrl_out);				// reset pll, changes the phase
+	Set_DPS (h2p_nmr_sys_pll_addr, 0, 0, DISABLE_MESSAGE); 						// set pll phase to 0 (might not be needed)
+	Wait_PLL_To_Lock (h2p_ctrl_in_addr, PLL_NMR_SYS_lock_ofst);					// wait for pll to lock
+
+	// set a fix phase cycle state
+	ctrl_out &= ~(0x01<<PHASE_CYCLING_ofst);
+	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out );
+	usleep(10);
+
+	// reset the selected ADC (the ADC reset was omitted)
+	// alt_write_word( (h2p_ctrl_out_addr) , ctrl_out | (0x01<<ADC_LTC1746_RST_ofst) );
+	// usleep(10);
+	// alt_write_word( (h2p_ctrl_out_addr) , ctrl_out & ~(0x01<<ADC_LTC1746_RST_ofst) );
+	// usleep(10);
+
+
+	// reset ADC buffer
+	ctrl_out |= (0x01<<ADC_FIFO_RST_ofst);
+	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out );
+	usleep(10);
+	ctrl_out &= ~(0x01<<ADC_FIFO_RST_ofst);
+	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out );
+	usleep(10);
+
+	// start fsm
+	// it will reset the pll as well, so it's important to set the phase
+	// the pll_rst_dly should be longer than the delay coming from changing the phase
+	// otherwise, the fsm will start with wrong relationship between 4 pll output clocks (1/2 pi difference between clock)
+	// alt_write_word( (h2p_nmr_pll_rst_dly_addr) , 1000000 );	// set the amount of delay for pll reset (with 50MHz system clock, every tick means 20ns) -> default: 100000
+	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
+	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out | (0x01<<FSM_START_ofst) );
+	usleep(10);
+	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out & ~(0x01<<FSM_START_ofst) );
+	// shift the pll phase accordingly
+	// Set_DPS (h2p_nmr_pll_addr, 0, 0, DISABLE_MESSAGE);
+	// Set_DPS (h2p_nmr_pll_addr, 1, 90, DISABLE_MESSAGE);
+	// Set_DPS (h2p_nmr_pll_addr, 2, 180, DISABLE_MESSAGE);
+	// Set_DPS (h2p_nmr_pll_addr, 3, 270, DISABLE_MESSAGE);
+	// usleep(scan_spacing_us);
+
+	if (read_with_dma) { // if read with dma is intended
+		datawrite_with_dma(samples_per_echo/2,enable_message); // divided by 2 to compensate 2 symbol per beat in the fifo interface
+	}
+	else { // if read from fifo is intended
+		// wait until fsm stops
+		while ( alt_read_word(h2p_ctrl_in_addr) & (0x01<<NMR_SEQ_run_ofst) );
+		usleep(300);
+
+		// PRINT # of DATAS in FIFO
+		// fifo_mem_level = alt_read_word(h2p_adc_fifo_status_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
+		// printf("num of data in fifo: %d\n",fifo_mem_level);
+
+		// READING DATA FROM FIFO
+		fifo_mem_level = alt_read_word(h2p_adc_fifo_status_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
+		for (i=0; fifo_mem_level>0; i++) {			// FIFO is 32-bit, while 1-sample is only 16-bit. FIFO organize this automatically. So, fetch only amount_of_data shifted by 2 to get amount_of_data/2.
+			rddata[i] = alt_read_word(h2p_adc_fifo_addr);
+
+			fifo_mem_level--;
+			if (fifo_mem_level == 0) {
+				fifo_mem_level = alt_read_word(h2p_adc_fifo_status_addr+ALTERA_AVALON_FIFO_LEVEL_REG);
+			}
+			//usleep(1);
+		}
+		usleep(100);
+
+		if (i*2 == samples_per_echo) { // if the amount of data captured matched with the amount of data being ordered, then continue the process. if not, then don't process the datas (requesting empty data from the fifo will cause the FPGA to crash, so this one is to avoid that)
+			// printf("number of captured data vs requested data : MATCHED\n");
+
+			j=0;
+			for(i=0; i < ( ((long)samples_per_echo)>>1 ); i++) {
+				rddata_16[j++] = (rddata[i] & 0x3FFF);		// 14 significant bit
+				rddata_16[j++] = ((rddata[i]>>16)&0x3FFF);	// 14 significant bit
+			}
+
+		}
+		else { // if the amount of data captured didn't match the amount of data being ordered, then something's going on with the acquisition
+			printf("[ERROR] number of data captured (%ld) and data ordered (%d): NOT MATCHED\nData are flushed!\nReconfigure the FPGA immediately\n", i*2, samples_per_echo);
+		}
+	}
+
+	// write the raw data from adc to a file
+	sprintf(pathname,"%s/%s",foldername,filename);	// put the data into the data folder
+	fptr = fopen(pathname, "w");
+	if (fptr == NULL) {
+		printf("File does not exists \n");
+	}
+	for(i=0; i < ( ((long)samples_per_echo) ); i++) {
+		fprintf(fptr, "%d\n", rddata_16[i]);
+	}
+	fclose(fptr);
+
+
+
+}
+
+void noise_iterate (
+	double cpmg_freq,
+	long unsigned scan_spacing_us,
+	unsigned int samples_per_echo,
+	unsigned int number_of_iteration,
+	uint32_t enable_message
+){
+	double nmr_fsm_clkfreq = 16*cpmg_freq;
+	double adc_ltc1746_freq = 4*cpmg_freq;
+
+	unsigned int fixed_init_adc_delay = 2; // set to the minimum delay values, which is 2 (limited by HDL structure).
+	double init_delay_inherent; // inherehent delay factor from the HDL structure. The minimum is 2.25 no matter how small the delay is set. Look ERRATA
+	if (fixed_init_adc_delay <= 2) {
+		init_delay_inherent = 2.25;
+	}
+	else { // if fixed_init_adc_delay is more than 2
+		init_delay_inherent = (double) fixed_init_adc_delay + 0.25; // look at ERRATA from the HDL to get 0.25
+	}
+
+	double init_adc_delay_compensation = init_delay_inherent /adc_ltc1746_freq;
+	unsigned int delay2_int = (unsigned int) (samples_per_echo*(nmr_fsm_clkfreq/adc_ltc1746_freq)*10);	// the number of delay after 180 deg pulse. It is simply samples_per_echo multiplied by (nmr_fsm_clkfreq/adc_ltc1746_freq) factor, as the delay2_int is counted by nmr_fsm_clkfreq, not by adc_ltc1746_freq. It is also multiplied by a constant 2 as safety factor to make sure the ADC acquisition is inside FSMSTAT (refer to HDL) 'on' window.
+
+	// read the current ctrl_out
+	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
+
+	create_measurement_folder("noise");
+	// printf("Approximated measurement time : %.2f mins\n",( scan_spacing_us*(double)number_of_iteration)*1e-6/60);
+
+	// print general measurement settings
+	sprintf(pathname,"%s/acqu.par",foldername);
+	fptr = fopen(pathname, "a");
+	fprintf(fptr,"b1Freq = %4.3f\n", cpmg_freq);
+	fprintf(fptr,"d180LengthRun = %4.3f\n", (double)delay2_int/nmr_fsm_clkfreq);
+	fprintf(fptr,"d180LengthCnt = %d @ %4.3f MHz\n", delay2_int,nmr_fsm_clkfreq);
+	fprintf(fptr,"ieTime = %lu\n", scan_spacing_us/1000);
+	fprintf(fptr,"nrPnts = %d\n", samples_per_echo);
+	fprintf(fptr,"echoShift = %4.3f --imprecise\n", init_adc_delay_compensation);
+	fprintf(fptr,"nrIterations = %d\n", number_of_iteration);
+	fprintf(fptr,"dummyEchoes = 0\n");
+	fprintf(fptr,"adcFreq = %4.3f\n", adc_ltc1746_freq);
+	fprintf(fptr,"dwellTime = %4.3f\n", 1/adc_ltc1746_freq);
+	fclose(fptr);
+
+	// print matlab script to analyze datas
+	sprintf(pathname,"measurement_history_matlab_script.txt");
+	fptr = fopen(pathname, "a");
+	fprintf(fptr,"fid_iterate([data_folder,'%s']);\n",foldername);
+	fclose(fptr);
+
+	// print matlab script to analyze datas
+	sprintf(pathname,"current_folder.txt");
+	fptr = fopen(pathname, "w");
+	fprintf(fptr,"%s\n",foldername);
+	fclose(fptr);
+
+
+
+	int FILENAME_LENGTH = 100;
+	char *name;
+	name = (char*) malloc (FILENAME_LENGTH*sizeof(char));
+
+	int iterate = 1;
+	for (iterate=1; iterate<=number_of_iteration; iterate++) {
+		// printf("\n*** RUN %d ***\n",iterate);
+
+		snprintf(name, FILENAME_LENGTH,"dat_%03d",iterate);
+
+		noise (
+			cpmg_freq,						//cpmg_freq
+			scan_spacing_us,				//scan_spacing_us
+			samples_per_echo,				//samples_per_echo
+			name,							//filename for data
+			enable_message
 		);
 
 	}
@@ -1608,14 +1858,14 @@ void init_default_system_param() {
 	Reconfig_Mode(h2p_nmr_sys_pll_addr,1); // polling mode for main pll
 	Reconfig_Mode(h2p_analyzer_pll_addr,1); // polling mode for main pll
 
-	// write_i2c_cnt (ENABLE, AMP_HP_LT1210_EN_msk, DISABLE_MESSAGE); // enable high-power transmitter
-	// write_i2c_cnt (ENABLE, PSU_5V_ADC_EN_msk|PSU_5V_ANA_P_EN_msk|PSU_5V_ANA_N_EN_msk|PSU_5V_TX_N_EN_msk|PSU_15V_TX_P_EN_msk|PSU_15V_TX_N_EN_msk, DISABLE_MESSAGE);
-	// write_i2c_cnt (ENABLE, PAMP_IN_SEL_RX_msk, DISABLE_MESSAGE);
+	//write_i2c_cnt (ENABLE, AMP_HP_LT1210_EN_msk, DISABLE_MESSAGE); // enable high-power transmitter
+	//write_i2c_cnt (ENABLE, PSU_5V_ADC_EN_msk|PSU_5V_ANA_P_EN_msk|PSU_5V_ANA_N_EN_msk|PSU_5V_TX_N_EN_msk|PSU_15V_TX_P_EN_msk|PSU_15V_TX_N_EN_msk, DISABLE_MESSAGE);
+	//write_i2c_cnt (ENABLE, PAMP_IN_SEL_RX_msk, DISABLE_MESSAGE);
 
 	ctrl_out |= NMR_CLK_GATE_AVLN;						// enable RF gate path, disable PLL_analyzer path
 	// ctrl_out &= ~NMR_CLK_GATE_AVLN;					// disable RF gate path, enable PLL analyzer path
-	alt_write_word(h2p_ctrl_out_addr, ctrl_out);		// write down the control
-	usleep(100);
+	// alt_write_word(h2p_ctrl_out_addr, ctrl_out);		// write down the control
+	// usleep(100);
 
 	/* manual selection of cshunt and cseries (put breakpoint before running)
 	int cshuntval = 120;
@@ -1625,7 +1875,7 @@ void init_default_system_param() {
 		printf("put a breakpoint here!!!!");
 	}
 	*/
-	// write_i2c_relay_cnt(110, 185, DISABLE_MESSAGE);
+	// write_i2c_relay_cnt(19, 66, DISABLE_MESSAGE);
 
 	// init_dac_ad5722r();		// power up the dac and init its operation
 	/* manual selection of vbias and vvarac (put breakpoint before running)
@@ -1646,13 +1896,16 @@ void init_default_system_param() {
 	// tune_board(4.3); 				// tune board frequency: input is frequency in MHz
 
 	// reset controller (CAUTION: this will fix the problem of crashed controller temporarily but won't really eliminate the problem: fix the state machine instead)
+	// the issue is the logic in ADC_WINGEN, where TOKEN is implemented to prevent retriggering. But also at the same time, if ADC_CLOCK is generated after ACQ_WND rises,
+	// the TOKEN is not resetted to 0, which will prevent the state machine from running. It is fixed by having reset button implemented to reset the TOKEN to 0 just
+	// before any acquisition.
 	ctrl_out |= NMR_CNT_RESET;
 	alt_write_word(h2p_ctrl_out_addr, ctrl_out);	// write down the control
-	usleep(1000);
+	usleep(10);
 	ctrl_out &= ~(NMR_CNT_RESET);
 	alt_write_word(h2p_ctrl_out_addr, ctrl_out);	// write down the control
 
-	usleep(500000); // this delay is extremely necessary! or data will be bad in first cpmg scan. also used to wait for vvarac and vbias to settle down
+	// usleep(500000); // this delay is extremely necessary! or data will be bad in first cpmg scan. also used to wait for vvarac and vbias to settle down
 
 }
 
@@ -1669,7 +1922,7 @@ void close_system () {
 
 /* Init default system param (rename the output to "init")
 int main() {
-    printf("Init system\n");
+    // printf("Init system\n");
 
     open_physical_memory_device();
     mmap_peripherals();
@@ -1682,7 +1935,7 @@ int main() {
 
 /* SPI for vbias and vvarac (rename the output to "preamp_tuning")
 int main(int argc, char * argv[]) {
-    printf("Preamp tuning with SPI\n");
+    // printf("Preamp tuning with SPI\n");
 
     // input parameters
     double vbias = atof(argv[1]);
@@ -1703,7 +1956,7 @@ int main(int argc, char * argv[]) {
 
 /* I2C matching network control (rename the output to "i2c_mtch_ntwrk")
 int main(int argc, char * argv[]) {
-    printf("Matching network control with I2C\n");
+    // printf("Matching network control with I2C\n");
 
     // input parameters
     unsigned int cshunt = atoi(argv[1]);
@@ -1722,7 +1975,7 @@ int main(int argc, char * argv[]) {
 
 /* I2C general control (rename the output to "i2c_gnrl")
 int main(int argc, char * argv[]) {
-    printf("General control with I2C\n");
+    // printf("General control with I2C\n");
 
     // input parameters
     unsigned int gnrl_cnt = atoi(argv[1]);
@@ -1769,7 +2022,8 @@ int main(int argc, char * argv[]) {
 }
 */
 
-// CPMG Iterate (rename the output to "cpmg_iterate")
+// CPMG Iterate (rename the output to "cpmg_iterate"). data_nowrite in CPMG_Sequence should 0
+// if CPMG Sequence is used without writing to text file, rename the output to "cpmg_iterate_direct". Set this setting in CPMG_Sequence: data_nowrite = 1
 int main(int argc, char * argv[]) {
     // printf("NMR system start\n");
 
@@ -1819,3 +2073,64 @@ int main(int argc, char * argv[]) {
     return 0;
 }
 //
+
+/* FID Iterate (rename the output to "fid")
+int main(int argc, char * argv[]) {
+
+    // input parameters
+    double cpmg_freq = atof(argv[1]);
+	double pulse2_us = atof(argv[2]);
+	double pulse2_dtcl = atof(argv[3]);
+	long unsigned scan_spacing_us = atoi(argv[4]);
+	unsigned int samples_per_echo = atoi(argv[5]);
+	unsigned int number_of_iteration = atoi(argv[6]);
+
+    open_physical_memory_device();
+    mmap_peripherals();
+    //init_default_system_param();
+
+    FID_iterate (
+    	cpmg_freq,
+    	pulse2_us,
+    	pulse2_dtcl,
+    	scan_spacing_us,
+    	samples_per_echo,
+    	number_of_iteration,
+    	ENABLE_MESSAGE
+	);
+
+	// close_system();
+    munmap_peripherals();
+    close_physical_memory_device();
+    return 0;
+}
+*/
+
+/* noise Iterate (rename the output to "noise")
+int main(int argc, char * argv[]) {
+
+    // input parameters
+    double samp_freq = atof(argv[1]);
+	long unsigned scan_spacing_us = atoi(argv[2]);
+	unsigned int samples_per_echo = atoi(argv[3]);
+	unsigned int number_of_iteration = atoi(argv[4]);
+
+    open_physical_memory_device();
+    mmap_peripherals();
+    init_default_system_param();
+
+    double cpmg_freq = samp_freq/4; // the building block that's used is still nmr cpmg, so the sampling frequency is fixed to 4*cpmg_frequency
+    noise_iterate (
+    	cpmg_freq,
+    	scan_spacing_us,
+    	samples_per_echo,
+    	number_of_iteration,
+    	ENABLE_MESSAGE
+	);
+
+	// close_system();
+    munmap_peripherals();
+    close_physical_memory_device();
+    return 0;
+}
+*/

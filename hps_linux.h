@@ -135,7 +135,8 @@ void sweep_vbias();												// sweep the vbias
 void write_vvarac_int(int16_t dac_v_varac);						// write v_varactor with a value
 void sweep_vvarac ();											// sweep the v_varactor
 void sweep_rx_gain ();										// sweep the rx gain (FOREVER LOOP)
-void fifo_to_sdram_dma_trf (uint32_t transfer_length, uint8_t en_mesg);
+void fifo_to_sdram_dma_trf (uint32_t transfer_length);
+void datawrite_with_dma (uint32_t transfer_length, uint8_t en_mesg);
 void close_system ();
 void CPMG_Sequence (
 	double cpmg_freq,
