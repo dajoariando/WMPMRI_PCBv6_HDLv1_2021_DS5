@@ -21,7 +21,7 @@
 #define PHASE_CYCLING		(1<<PHASE_CYCLING_ofst)
 #define DAC_LDAC_en			(1<<DAC_LDAC_en_ofst)
 #define DAC_CLR				(1<<DAC_CLR_ofst)
-#define CNT_OUT_default		0b0000000001
+#define CNT_OUT_default		(DAC_CLR | NMR_CLK_GATE_AVLN)
 
 // Output control signal to FPGA via I2C
 #define PSU_15V_TX_P_EN_ofst	(0)

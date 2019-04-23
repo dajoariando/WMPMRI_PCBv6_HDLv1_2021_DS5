@@ -30,7 +30,7 @@
 #include "functions/AlteraIP/altera_avalon_fifo_regs.h"
 #include "functions/nmr_table.h"
 #include "functions/avalon_dma.h"
-#include "hps_soc_system_backup(3).h"
+#include "hps_soc_system.h"
 
 void open_physical_memory_device() {
     // We need to access the system's physical memory so we can map it to user
@@ -118,6 +118,7 @@ void mmap_fpga_peripherals() {
 	h2p_adc_fifo_status_addr		= h2f_lw_axi_master + ADC_FIFO_MEM_IN_CSR_BASE;
 	h2p_adc_samples_per_echo_addr	= h2f_lw_axi_master + NMR_PARAMETERS_SAMPLES_PER_ECHO_BASE;
 	h2p_init_adc_delay_addr			= h2f_lw_axi_master + NMR_PARAMETERS_INIT_DELAY_BASE;
+	h2p_rx_delay_addr				= h2f_lw_axi_master + NMR_PARAMETERS_RX_DELAY_BASE;
 	h2p_dac_addr					= h2f_lw_axi_master + DAC_PREAMP_BASE;
 	h2p_analyzer_pll_addr			= h2f_lw_axi_master + ANALYZER_PLL_RECONFIG_BASE;
 	h2p_t1_pulse					= h2f_lw_axi_master + NMR_PARAMETERS_PULSE_T1_BASE;
@@ -1927,6 +1928,9 @@ int main() {
     open_physical_memory_device();
     mmap_peripherals();
     init_default_system_param();
+
+    alt_write_word( h2p_rx_delay_addr , 20 );
+
     munmap_peripherals();
     close_physical_memory_device();
     return 0;
@@ -2024,7 +2028,7 @@ int main(int argc, char * argv[]) {
 
 // CPMG Iterate (rename the output to "cpmg_iterate"). data_nowrite in CPMG_Sequence should 0
 // if CPMG Sequence is used without writing to text file, rename the output to "cpmg_iterate_direct". Set this setting in CPMG_Sequence: data_nowrite = 1
-int main(int argc, char * argv[]) {
+/*int main(int argc, char * argv[]) {
     // printf("NMR system start\n");
 
     // input parameters
@@ -2042,6 +2046,9 @@ int main(int argc, char * argv[]) {
 	uint32_t ph_cycl_en = atoi(argv[12]);
 	unsigned int pulse180_t1_int = atoi(argv[13]);
 	unsigned int delay180_t1_int = atoi(argv[14]);
+
+	// rddata_16 = (unsigned int*)malloc(samples_per_echo*echoes_per_scan*sizeof(unsigned int)); 	//added malloc to this routine only - other routines will need to be updated when required
+	// rddata = (unsigned int *)malloc(samples_per_echo*echoes_per_scan/2*sizeof(unsigned int));	// petrillo 2Feb2019
 
     open_physical_memory_device();
     mmap_peripherals();
@@ -2070,9 +2077,13 @@ int main(int argc, char * argv[]) {
 	// close_system();
     munmap_peripherals();
     close_physical_memory_device();
+
+    // free(rddata_16);	//freeing up allocated memory requried for multiple calls from host
+    // free(rddata);		//petrillo 2Feb2019
+
     return 0;
 }
-//
+*/
 
 /* FID Iterate (rename the output to "fid")
 int main(int argc, char * argv[]) {
@@ -2106,7 +2117,7 @@ int main(int argc, char * argv[]) {
 }
 */
 
-/* noise Iterate (rename the output to "noise")
+// noise Iterate (rename the output to "noise")
 int main(int argc, char * argv[]) {
 
     // input parameters
@@ -2133,4 +2144,4 @@ int main(int argc, char * argv[]) {
     close_physical_memory_device();
     return 0;
 }
-*/
+//

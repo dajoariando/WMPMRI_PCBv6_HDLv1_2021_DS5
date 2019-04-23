@@ -7,7 +7,7 @@
 #include "socal/hps.h"
 #include "socal/alt_gpio.h"
 #include "reconfig_functions.h"
-#include "../hps_soc_system_backup(3).h"
+#include "../hps_soc_system.h"
 
 // counter C read address (write address is different from read address)
 uint32_t COUNTER_READ_ADDR [18] = {

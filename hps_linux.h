@@ -6,7 +6,7 @@
 
 #include <socal/hps.h>
 #include "functions/general.h"
-#include "hps_soc_system_backup(3).h"
+#include "hps_soc_system.h"
 
 #define ALT_AXI_FPGASLVS_OFST (0xC0000000) // axi_master
 #define HW_FPGA_AXI_SPAN (0x40000000) // Bridge span
@@ -98,6 +98,7 @@ volatile unsigned int *h2p_adc_fifo_status_addr		= NULL; // ADC FIFO status addr
 volatile unsigned int *h2p_adc_str_fifo_status_addr	= NULL; // ADC streaming FIFO status address
 void *h2p_adc_samples_per_echo_addr						= NULL; // The number of ADC capture per echo
 void *h2p_init_adc_delay_addr							= NULL; // The cycle number for delay in an echo after pulse 180 is done. The idea is to put adc capture in the middle of echo window and giving some freedom to move the ADC capture window within the echo window
+void *h2p_rx_delay_addr							= NULL; // generated delay for rx enable in Jarred's broadband board
 void *h2p_switches_addr						= NULL;
 
 // DMA & SDRAM
@@ -162,7 +163,9 @@ FILE	*fptr;
 long i;
 long j;
 unsigned int rddata [128000];
+// unsigned int *rddata;
 unsigned int rddata_16[32000000];
+// unsigned int *rddata_16;
 char foldername[50]; // variable to store folder name of the measurement data
 char pathname[60];
 
