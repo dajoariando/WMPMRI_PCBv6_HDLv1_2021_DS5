@@ -766,22 +766,6 @@ void fifo_to_sdram_dma_trf (uint32_t transfer_length) {
 	alt_write_word(h2p_dma_addr+DMA_CONTROL_OFST,	DMA_CTRL_SWRST_MSK); 	// write twice to do software reset
 	alt_write_word(h2p_dma_addr+DMA_CONTROL_OFST,	DMA_CTRL_SWRST_MSK); 	// software resetted
 	alt_write_word(h2p_dma_addr+DMA_STATUS_OFST,	0x0); 					// clear the DONE bit
-
-	unsigned int en_mesg = 1;
-	unsigned int dma_status;
-	dma_status = alt_read_word(h2p_dma_addr+DMA_STATUS_OFST);
-			if (en_mesg) {
-				printf("\tstatus reg: 0x%x\n",dma_status);
-				if (!(dma_status & DMA_STAT_DONE_MSK)) {
-					printf("\tDMA transaction is not done.\n");
-					usleep(500000); // wait time to prevent overloading the DMA bus arbitration request
-				}
-				if (dma_status & DMA_STAT_BUSY_MSK) {
-					printf("\tDMA is busy.\n");
-					usleep(500000); // wait time to prevent overloading the DMA bus arbitration request
-				}
-			}
-
 	alt_write_word(h2p_dma_addr+DMA_READADDR_OFST,	ADC_FIFO_MEM_OUT_BASE); // set DMA read address
 	alt_write_word(h2p_dma_addr+DMA_WRITEADDR_OFST,	SDRAM_BASE);			// set DMA write address
 	alt_write_word(h2p_dma_addr+DMA_LENGTH_OFST,	transfer_length*4);		// set transfer length (in byte, so multiply by 4 to get word-addressing)
@@ -801,13 +785,12 @@ void datawrite_with_dma (uint32_t transfer_length, uint8_t en_mesg) {
 			printf("\tstatus reg: 0x%x\n",dma_status);
 			if (!(dma_status & DMA_STAT_DONE_MSK)) {
 				printf("\tDMA transaction is not done.\n");
-				usleep(500000); // wait time to prevent overloading the DMA bus arbitration request
 			}
 			if (dma_status & DMA_STAT_BUSY_MSK) {
 				printf("\tDMA is busy.\n");
-				usleep(500000); // wait time to prevent overloading the DMA bus arbitration request
 			}
 		}
+		usleep(10); // wait time to prevent overloading the DMA bus arbitration request																	 
 	}
 	while (!(dma_status & DMA_STAT_DONE_MSK) || (dma_status & DMA_STAT_BUSY_MSK)); // keep in the loop when the 'DONE' bit is '0' and 'BUSY' bit is '1'
 
@@ -834,6 +817,7 @@ void datawrite_with_dma (uint32_t transfer_length, uint8_t en_mesg) {
 		rddata_16[i_sd*2] = fifo_data_read & 0x3FFF;
 		rddata_16[i_sd*2+1] = (fifo_data_read>>16) & 0x3FFF;
 	}
+
 }
 
 void tx_sampling(double tx_freq, double samp_freq, unsigned int tx_num_of_samples, char * filename) {
@@ -1044,6 +1028,7 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 	double nmr_fsm_clkfreq = cpmg_freq*16;
 
 	double init_delay_inherent = 2.25; // inherehent delay factor from the HDL structure, in ADC clock cycles
+	double acq_window_safety_fact = (1/cpmg_freq)*10; // safety factor for acquisition window in clock cycles
 
 	// read settings
 	uint8_t store_to_sdram_only = 0; // do not write the data from fifo to text file (external reading mechanism should be implemented)
@@ -1090,7 +1075,17 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 		printf("\tADC acq window\t: %7.3f us (%d)\n", ((double)samples_per_echo)/adc_ltc1746_freq, samples_per_echo);
 	}
 	if (cpmg_param[INIT_DELAY_ADC_OFFST] < 2) {
-		printf("\tWARNING: Computed ADC_init_delay is less than 2, ADC_init_delay is force driven to 2 inside the HDL!");
+		printf("\t[WARNING] Computed ADC_init_delay < 2 clks\n");
+		printf("\t[WARNING] ADC_init_delay is forced to 2 clks in FPGA HDL!\n");
+	}
+	if (((double)samples_per_echo)/adc_ltc1746_freq > (echo_spacing_us-pulse2_us)) {
+		printf("\t[ERROR] acq.window (%.1fus) >> tE-p180 (%.1fus).\n",(((double)samples_per_echo)/adc_ltc1746_freq),echo_spacing_us-pulse2_us);
+		printf("\t[ERROR] Increase tE or reduce SpE or reduce p180.\n");
+	}
+	double excess_acq = (echo_spacing_us-((double)samples_per_echo)/adc_ltc1746_freq) / 2 - init_adc_delay_compensation - acq_window_safety_fact;
+	if (excess_acq < 0) {
+		printf("\t[ERROR] (acq.window) exceeds (delay180.window) by %.1fus.\n",-excess_acq);
+		printf("\t[ERROR] Increase tE or reduce SpE or reduce p180 or adjust echo_shift\n");
 	}
 
 	// set pll for CPMG
@@ -1145,7 +1140,7 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 	// process raw data
 	if (!store_to_sdram_only) { // write data to text with C programming
 		if (store_and_read_from_sdram) { // if read with dma is intended
-			datawrite_with_dma(samples_per_echo*echoes_per_scan/2,ENABLE_MESSAGE);
+			datawrite_with_dma(samples_per_echo*echoes_per_scan/2,DISABLE_MESSAGE);
 		}
 		else { // if read from fifo is intended
 			// wait until fsm stops
@@ -1263,7 +1258,6 @@ void CPMG_iterate (
 ){
 	double nmr_fsm_clkfreq = 16*cpmg_freq;
 	double adc_ltc1746_freq = 4*cpmg_freq;
-	unsigned int dconv_fact = 4; // downconversion factor, see Qsys FIR filter
 
 	// read the current ctrl_out
 	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
@@ -2170,7 +2164,7 @@ int main(int argc, char * argv[]) {
 // if CPMG Sequence is used without writing to text file, rename the output to "cpmg_iterate_direct". Set this setting in CPMG_Sequence: data_nowrite = 1
 //
 int main(int argc, char * argv[]) {
-    printf("NMR system start\n");
+    // printf("NMR system start\n");
 
     // input parameters
     double cpmg_freq = atof(argv[1]);
@@ -2188,8 +2182,11 @@ int main(int argc, char * argv[]) {
 	unsigned int pulse180_t1_int = atoi(argv[13]);
 	unsigned int delay180_t1_int = atoi(argv[14]);
 
-	// rddata_16 = (unsigned int*)malloc(samples_per_echo*echoes_per_scan*sizeof(unsigned int)); 	//added malloc to this routine only - other routines will need to be updated when required
-	// rddata = (unsigned int *)malloc(samples_per_echo*echoes_per_scan/2*sizeof(unsigned int));	// petrillo 2Feb2019
+	// memory allocation
+	rddata_16 = (unsigned int*)malloc(samples_per_echo*echoes_per_scan*sizeof(unsigned int)); 	//added malloc to this routine only - other routines will need to be updated when required
+	rddata = (unsigned int *)malloc(samples_per_echo*echoes_per_scan/2*sizeof(unsigned int));	// petrillo 2Feb2019
+	dconvi = (int *)malloc(samples_per_echo*echoes_per_scan*sizeof(int)/dconv_fact);
+	dconvq = (int *)malloc(samples_per_echo*echoes_per_scan*sizeof(int)/dconv_fact);
 
     open_physical_memory_device();
     mmap_peripherals();
@@ -2219,8 +2216,11 @@ int main(int argc, char * argv[]) {
     munmap_peripherals();
     close_physical_memory_device();
 
-    // free(rddata_16);	//freeing up allocated memory requried for multiple calls from host
-    // free(rddata);		//petrillo 2Feb2019
+    // free memory
+    free(rddata_16);	//freeing up allocated memory requried for multiple calls from host
+    free(rddata);		//petrillo 2Feb2019
+    free(dconvi);
+    free(dconvq);
 
     return 0;
 }
