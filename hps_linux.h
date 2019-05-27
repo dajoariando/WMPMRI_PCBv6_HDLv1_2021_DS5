@@ -66,6 +66,7 @@ void *h2p_led_addr								= NULL; // gpio for LEDs
 volatile unsigned long *h2p_i2c_ext_addr		= NULL; // gpio for i2c (used for relay control through io expander chip TCA9555PWR, and also rx gain selector)
 volatile unsigned long *h2p_i2c_int_addr		= NULL; // gpio for i2c (used for relay control through io expander chip TCA9555PWR, and also rx gain selector)
 volatile unsigned int *h2p_dac_addr				= NULL; // gpio for dac (spi)
+volatile unsigned int *h2p_spi_mtch_ntwrk_addr	= NULL; // spi for matching network control (PCB v4 onwards)
 // void *h2p_i2c_ext_addr		= NULL; // gpio for i2c (used for relay control through io expander chip TCA9555PWR, and also rx gain selector)
 // void *h2p_dac_addr			= NULL; // gpio for dac (spi)
 
@@ -101,6 +102,11 @@ void *h2p_init_adc_delay_addr							= NULL; // The cycle number for delay in an 
 void *h2p_rx_delay_addr							= NULL; // generated delay for rx enable in Jarred's broadband board
 void *h2p_switches_addr						= NULL;
 
+void 					*h2p_dconvi_addr 		= NULL; // downconverted data i fifo
+void 					*h2p_dconvq_addr 		= NULL; // downconverted data q fifo
+volatile unsigned int	*h2p_dconvi_csr_addr	= NULL; // downconverted data i fifo status reg
+volatile unsigned int	*h2p_dconvq_csr_addr	= NULL; // downconverted data q fifo status reg
+
 // DMA & SDRAM
 volatile unsigned int *h2p_dma_addr = NULL;
 volatile unsigned int *h2p_sdram_addr = NULL;
@@ -125,7 +131,7 @@ int exit_program();												// terminate the program
 void init_dac_ad5722r ();
 void print_warning_ad5722r();
 void init_default_system_param();								// initialize the system with tuned default parameter
-void write_i2c_relay_cnt (uint8_t c_shunt, uint8_t c_series, uint8_t en_mesg);	// program the capacitance with the relay
+void write_i2c_relay_cnt (uint16_t c_shunt, uint16_t c_series, uint8_t en_mesg);	// program the capacitance with the relay
 void write_i2c_cnt (uint32_t en, uint32_t addr_msk, uint8_t en_mesg);
 void write_i2c_rx_gain (uint8_t rx_gain);						// program the final receiver gain. 0x00 means minimum gain (not really zero gain) and 0x0F means max gain (infinite/open circuit). So effective value is 0x00 to 0x0E
 void sweep_matching_network();									// sweep the capacitance in matching network by sweeping the relay (FOREVER LOOP)
@@ -166,6 +172,8 @@ unsigned int rddata [128000];
 // unsigned int *rddata;
 unsigned int rddata_16[32000000];
 // unsigned int *rddata_16;
+unsigned int dconvi[8000000]; // downconverted i data
+unsigned int dconvq[8000000]; // downconverted q data
 char foldername[50]; // variable to store folder name of the measurement data
 char pathname[60];
 

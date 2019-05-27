@@ -1,3 +1,7 @@
+// BOARD DEFINITION (ONLY ENABLE 1 AT A TIME)
+#define PCBv4_APR2019
+// #define PCBv2_FEB2018
+
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -120,11 +124,18 @@ void mmap_fpga_peripherals() {
 	h2p_init_adc_delay_addr			= h2f_lw_axi_master + NMR_PARAMETERS_INIT_DELAY_BASE;
 	h2p_rx_delay_addr				= h2f_lw_axi_master + NMR_PARAMETERS_RX_DELAY_BASE;
 	h2p_dac_addr					= h2f_lw_axi_master + DAC_PREAMP_BASE;
+	h2p_spi_mtch_ntwrk_addr			= h2f_lw_axi_master + SPI_MTCH_NTWRK_BASE;
 	h2p_analyzer_pll_addr			= h2f_lw_axi_master + ANALYZER_PLL_RECONFIG_BASE;
 	h2p_t1_pulse					= h2f_lw_axi_master + NMR_PARAMETERS_PULSE_T1_BASE;
 	h2p_t1_delay					= h2f_lw_axi_master + NMR_PARAMETERS_DELAY_T1_BASE;
-
 	h2p_dma_addr					= h2f_lw_axi_master + DMA_FIFO_BASE;
+
+	h2p_dconvi_addr					= h2f_lw_axi_master + DCONV_FIFO_MEM_OUT_BASE;
+	h2p_dconvq_addr					= h2f_lw_axi_master + DCONV_FIFO_MEM_Q_OUT_BASE;
+	h2p_dconvi_csr_addr				= h2f_lw_axi_master + DCONV_FIFO_MEM_IN_CSR_BASE;
+	h2p_dconvq_csr_addr				= h2f_lw_axi_master + DCONV_FIFO_MEM_Q_IN_CSR_BASE;
+
+
 	h2p_sdram_addr					= h2f_axi_master + SDRAM_BASE;
 	h2p_switches_addr				= h2f_axi_master + SWITCHES_BASE;
 
@@ -201,7 +212,62 @@ void create_measurement_folder(char * foldertype) {
 	// system(command);
 }
 
-void write_i2c_relay_cnt (uint8_t c_shunt, uint8_t c_series, uint8_t en_mesg) {
+void write_i2c_relay_cnt (uint16_t c_shunt, uint16_t c_series, uint8_t en_mesg) {
+
+#ifdef PCBv4_APR2019 // write matching network via spi
+
+	/*
+	// data is transfered MSB first, but the data needs to be sent in following sequence:
+	// of cseries_msb, cseries_lsb+cshunt_msb, cshunt_lsb
+	uint8_t cser_msb, cser_lsb_cshunt_msb, cshunt_lsb;
+
+	cser_msb 			= (uint8_t)((c_series >> 4) & 0xFF);
+	cser_lsb_cshunt_msb	= (uint8_t)(((c_shunt >> 8) & 0x0F) | ((c_series & 0x0F)<<4));
+	cshunt_lsb			= (uint8_t)(c_shunt & 0xFF);
+
+	// reorder the data (msb was inverted to lsb)
+	cser_msb =	((cser_msb & (0x01<<0)) << 7)|
+				((cser_msb & (0x01<<1)) << 5)|
+				((cser_msb & (0x01<<2)) << 3)|
+				((cser_msb & (0x01<<3)) << 1)|
+				((cser_msb & (0x01<<4)) >> 1)|
+				((cser_msb & (0x01<<5)) >> 3)|
+				((cser_msb & (0x01<<6)) >> 5)|
+				((cser_msb & (0x01<<7)) >> 7);
+	cser_lsb_cshunt_msb =	((cser_lsb_cshunt_msb & (0x01<<0)) << 7)|
+								((cser_lsb_cshunt_msb & (0x01<<1)) << 5)|
+								((cser_lsb_cshunt_msb & (0x01<<2)) << 3)|
+								((cser_lsb_cshunt_msb & (0x01<<3)) << 1)|
+								((cser_lsb_cshunt_msb & (0x01<<4)) >> 1)|
+								((cser_lsb_cshunt_msb & (0x01<<5)) >> 3)|
+								((cser_lsb_cshunt_msb & (0x01<<6)) >> 5)|
+								((cser_lsb_cshunt_msb & (0x01<<7)) >> 7);
+	cshunt_lsb =	((cshunt_lsb & (0x01<<0)) << 7)|
+					((cshunt_lsb & (0x01<<1)) << 5)|
+					((cshunt_lsb & (0x01<<2)) << 3)|
+					((cshunt_lsb & (0x01<<3)) << 1)|
+					((cshunt_lsb & (0x01<<4)) >> 1)|
+					((cshunt_lsb & (0x01<<5)) >> 3)|
+					((cshunt_lsb & (0x01<<6)) >> 5)|
+					((cshunt_lsb & (0x01<<7)) >> 7);
+	*/
+
+	// data is transfered LSB first, but the data needs to be sent in following sequence:
+	// of cseries_lsb, cshunt_lsb+cseries_msb, cshunt_msb
+	uint8_t cser_lsb, cshunt_lsb_cser_msb, cshunt_msb;
+
+	cser_lsb 			= (uint8_t)(c_series & 0xFF);
+	cshunt_lsb_cser_msb	= (uint8_t)( ((c_shunt & 0x0F)<<4) | ((c_series>>8) & 0x0F) );
+	cshunt_msb			= (uint8_t)( (c_shunt>>4) & 0xFF );
+
+	alt_write_word( (h2p_spi_mtch_ntwrk_addr + SPI_TXDATA_offst) , ((uint32_t) cshunt_msb)<<16 | ((uint32_t) cshunt_lsb_cser_msb)<<8 | cser_lsb); // set the matching network
+	while (!(alt_read_word(h2p_spi_mtch_ntwrk_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) )); // wait for the spi command to finish
+	if (en_mesg) {
+		printf("\trelay control via spi (PCB v4 only!)...\n");
+	}
+#endif /* PCBv4_APR2019 */
+
+#ifdef PCBv2_FEB2018 // write matching network via i2c
 	uint8_t i2c_addr_relay = 0x40;	// i2c address for TCA9555PWR used by the relay
 	i2c_addr_relay >>= 1;			// shift by one because the LSB address is not used as an address (controlled by the Altera I2C IP)
 
@@ -298,6 +364,8 @@ void write_i2c_relay_cnt (uint8_t c_shunt, uint8_t c_series, uint8_t en_mesg) {
 	alt_write_word( (h2p_i2c_ext_addr+CTRL_OFST), 0<<CORE_EN_SHFT); // disable i2c core
 
 	usleep(10000);
+#endif /* PCBv2_FEB2018 */
+
 }
 
 void write_i2c_cnt (uint32_t en, uint32_t addr_msk, uint8_t en_mesg) {
@@ -390,6 +458,7 @@ void write_i2c_cnt (uint32_t en, uint32_t addr_msk, uint8_t en_mesg) {
 	alt_write_word( (h2p_i2c_int_addr+CTRL_OFST), 0<<CORE_EN_SHFT); // disable i2c core
 
 	usleep(10000); // delay to finish i2c operation
+
 }
 
 void sweep_matching_network() {
@@ -695,13 +764,13 @@ void sweep_rx_gain () {
 
 void fifo_to_sdram_dma_trf (uint32_t transfer_length) {
 	alt_write_word(h2p_dma_addr+DMA_CONTROL_OFST,	DMA_CTRL_SWRST_MSK); 	// write twice to do software reset
-		alt_write_word(h2p_dma_addr+DMA_CONTROL_OFST,	DMA_CTRL_SWRST_MSK); 	// software resetted
-		alt_write_word(h2p_dma_addr+DMA_STATUS_OFST,	0x0); 					// clear the DONE bit
-		alt_write_word(h2p_dma_addr+DMA_READADDR_OFST,	ADC_FIFO_MEM_OUT_BASE); // set DMA read address
-		alt_write_word(h2p_dma_addr+DMA_WRITEADDR_OFST,	SDRAM_BASE);			// set DMA write address
-		alt_write_word(h2p_dma_addr+DMA_LENGTH_OFST,	transfer_length*4);		// set transfer length (in byte, so multiply by 4 to get word-addressing)
-		alt_write_word(h2p_dma_addr+DMA_CONTROL_OFST,	(DMA_CTRL_WORD_MSK|DMA_CTRL_LEEN_MSK|DMA_CTRL_RCON_MSK)); // set settings for transfer
-		alt_write_word(h2p_dma_addr+DMA_CONTROL_OFST,	(DMA_CTRL_WORD_MSK|DMA_CTRL_LEEN_MSK|DMA_CTRL_RCON_MSK|DMA_CTRL_GO_MSK)); // set settings & also enable transfer
+	alt_write_word(h2p_dma_addr+DMA_CONTROL_OFST,	DMA_CTRL_SWRST_MSK); 	// software resetted
+	alt_write_word(h2p_dma_addr+DMA_STATUS_OFST,	0x0); 					// clear the DONE bit
+	alt_write_word(h2p_dma_addr+DMA_READADDR_OFST,	ADC_FIFO_MEM_OUT_BASE); // set DMA read address
+	alt_write_word(h2p_dma_addr+DMA_WRITEADDR_OFST,	SDRAM_BASE);			// set DMA write address
+	alt_write_word(h2p_dma_addr+DMA_LENGTH_OFST,	transfer_length*4);		// set transfer length (in byte, so multiply by 4 to get word-addressing)
+	alt_write_word(h2p_dma_addr+DMA_CONTROL_OFST,	(DMA_CTRL_WORD_MSK|DMA_CTRL_LEEN_MSK|DMA_CTRL_RCON_MSK)); // set settings for transfer
+	alt_write_word(h2p_dma_addr+DMA_CONTROL_OFST,	(DMA_CTRL_WORD_MSK|DMA_CTRL_LEEN_MSK|DMA_CTRL_RCON_MSK|DMA_CTRL_GO_MSK)); // set settings & also enable transfer
 }
 
 void datawrite_with_dma (uint32_t transfer_length, uint8_t en_mesg) {
@@ -960,8 +1029,9 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 	double init_delay_inherent = 2.25; // inherehent delay factor from the HDL structure, in ADC clock cycles
 
 	// read settings
-	uint8_t data_nowrite = 0; // do not write the data from fifo to text file (external reading mechanism should be implemented)
-	uint8_t read_with_dma = 1; // else the program reads data directly from the fifo
+	uint8_t store_to_sdram_only = 0; // do not write the data from fifo to text file (external reading mechanism should be implemented)
+	uint8_t store_and_read_from_sdram = 0; // store data to sdram (increasing memory limit). Or else the program reads data directly from the fifo
+	uint8_t write_data_to_file = 0; // write the individual scan data to a text file
 
 	usleep(scan_spacing_us);
 
@@ -999,7 +1069,7 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 		printf("\tDelay 1\t\t\t: %7.3f us (%d)\n", (double)cpmg_param[DELAY1_OFFST]/nmr_fsm_clkfreq, cpmg_param[DELAY1_OFFST]);
 		printf("\tPulse 2\t\t\t: %7.3f us (%d)\n", (double)cpmg_param[PULSE2_OFFST]/nmr_fsm_clkfreq, cpmg_param[PULSE2_OFFST]);
 		printf("\tDelay 2\t\t\t: %7.3f us (%d)\n", (double)cpmg_param[DELAY2_OFFST]/nmr_fsm_clkfreq, cpmg_param[DELAY2_OFFST]);
-		printf("\tADC init delay\t: %7.3f us (%d) -not-precise\n", ((double)cpmg_param[INIT_DELAY_ADC_OFFST]+init_delay_inherent)/adc_ltc1746_freq, cpmg_param[INIT_DELAY_ADC_OFFST]);
+		printf("\tADC init delay\t: %7.3f us (%d) -not-precise\n", ((double)cpmg_param[INIT_DELAY_ADC_OFFST]+init_delay_inherent)/adc_ltc1746_freq, cpmg_param[INIT_DELAY_ADC_OFFST]); // not precise due to the clock uncertainties between the main clock and ADC clock
 		printf("\tADC acq window\t: %7.3f us (%d)\n", ((double)samples_per_echo)/adc_ltc1746_freq, samples_per_echo);
 	}
 	if (cpmg_param[INIT_DELAY_ADC_OFFST] < 2) {
@@ -1055,8 +1125,32 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 	// Set_DPS (h2p_nmr_pll_addr, 3, 270, DISABLE_MESSAGE);
 	// usleep(scan_spacing_us);
 
-	if (!data_nowrite) { // write data to text with C programming
-		if (read_with_dma) { // if read with dma is intended
+	// process downconverted data
+	while ( alt_read_word(h2p_ctrl_in_addr) & (0x01<<NMR_SEQ_run_ofst) );
+	usleep(300);
+	fifo_mem_level = alt_read_word(h2p_dconvi_csr_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
+	for (i=0; fifo_mem_level>0; i++) {			// FIFO is 32-bit, while 1-sample is only 16-bit. FIFO organize this automatically. So, fetch only amount_of_data shifted by 2 to get amount_of_data/2.
+		dconvi[i] = alt_read_word(h2p_dconvi_addr);
+		//printf("dconvi = %d",dconvi[i]);
+		fifo_mem_level--;
+		if (fifo_mem_level == 0) {
+			fifo_mem_level = alt_read_word(h2p_dconvi_csr_addr+ALTERA_AVALON_FIFO_LEVEL_REG);
+		}
+	}
+	fifo_mem_level = alt_read_word(h2p_dconvq_csr_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
+	for (i=0; fifo_mem_level>0; i++) {			// FIFO is 32-bit, while 1-sample is only 16-bit. FIFO organize this automatically. So, fetch only amount_of_data shifted by 2 to get amount_of_data/2.
+		dconvq[i] = alt_read_word(h2p_dconvq_addr);
+		//printf("dconvi = %d",dconvq[i]);
+		fifo_mem_level--;
+		if (fifo_mem_level == 0) {
+			fifo_mem_level = alt_read_word(h2p_dconvq_csr_addr+ALTERA_AVALON_FIFO_LEVEL_REG);
+		}
+	}
+
+
+	// process raw data
+	if (!store_to_sdram_only) { // write data to text with C programming
+		if (store_and_read_from_sdram) { // if read with dma is intended
 			datawrite_with_dma(samples_per_echo*echoes_per_scan/2,DISABLE_MESSAGE);
 		}
 		else { // if read from fifo is intended
@@ -1096,37 +1190,39 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 			}
 		}
 
-		// write the raw data from adc to a file
-		sprintf(pathname,"%s/%s",foldername,filename);	// put the data into the data folder
-		fptr = fopen(pathname, "w");
-		if (fptr == NULL) {
-			printf("File does not exists \n");
-		}
-		for(i=0; i < ( ((long)samples_per_echo*(long)echoes_per_scan) ); i++) {
-			fprintf(fptr, "%d\n", rddata_16[i]);
-		}
-		fclose(fptr);
-
-		// write the averaged data to a file
-		unsigned int avr_data[samples_per_echo];
-		// initialize array
-		for (i=0; i<samples_per_echo; i++) {
-			avr_data[i] = 0;
-		};
-		for (i=0; i<samples_per_echo; i++) {
-			for (j=i; j<( ((long)samples_per_echo*(long)echoes_per_scan) ); j+=samples_per_echo) {
-				avr_data[i] += rddata_16[j];
+		if (write_data_to_file) { // put the individual scan data into a file
+			// write the raw data from adc to a file
+			sprintf(pathname,"%s/%s",foldername,filename);	// put the data into the data folder
+			fptr = fopen(pathname, "w");
+			if (fptr == NULL) {
+				printf("File does not exists \n");
 			}
+			for(i=0; i < ( ((long)samples_per_echo*(long)echoes_per_scan) ); i++) {
+				fprintf(fptr, "%d\n", rddata_16[i]);
+			}
+			fclose(fptr);
+
+			// write the averaged data to a file
+			unsigned int avr_data[samples_per_echo];
+			// initialize array
+			for (i=0; i<samples_per_echo; i++) {
+				avr_data[i] = 0;
+			};
+			for (i=0; i<samples_per_echo; i++) {
+				for (j=i; j<( ((long)samples_per_echo*(long)echoes_per_scan) ); j+=samples_per_echo) {
+					avr_data[i] += rddata_16[j];
+				}
+			}
+			sprintf(pathname,"%s/%s",foldername,avgname);	// put the data into the data folder
+			fptr = fopen(pathname, "w");
+			if (fptr == NULL) {
+				printf("File does not exists \n");
+			}
+			for (i=0; i<samples_per_echo; i++) {
+				fprintf(fptr, "%d\n", avr_data[i]);
+			}
+			fclose(fptr);
 		}
-		sprintf(pathname,"%s/%s",foldername,avgname);	// put the data into the data folder
-		fptr = fopen(pathname, "w");
-		if (fptr == NULL) {
-			printf("File does not exists \n");
-		}
-		for (i=0; i<samples_per_echo; i++) {
-			fprintf(fptr, "%d\n", avr_data[i]);
-		}
-		fclose(fptr);
 	}
 	else { // do not write data to text with C programming: external mechanism should be implemented
 		fifo_to_sdram_dma_trf (samples_per_echo*echoes_per_scan/2); // start DMA process
@@ -1151,6 +1247,7 @@ void CPMG_iterate (
 ){
 	double nmr_fsm_clkfreq = 16*cpmg_freq;
 	double adc_ltc1746_freq = 4*cpmg_freq;
+	unsigned int dconv_fact = 4; // downconversion factor, see Qsys FIR filter
 
 	// read the current ctrl_out
 	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
@@ -1219,8 +1316,15 @@ void CPMG_iterate (
 	char *nameavg;
 	nameavg = (char*) malloc (FILENAME_LENGTH*sizeof(char));
 
+	// amplitude sum
 	int Asum[samples_per_echo*echoes_per_scan];
 	for (i=0; i<samples_per_echo*echoes_per_scan; i++) Asum[i] = 0;
+
+	// downconverted sum
+	int dconvi_sum[samples_per_echo*echoes_per_scan/dconv_fact];
+	int dconvq_sum[samples_per_echo*echoes_per_scan/dconv_fact];
+	for (i=0; i<samples_per_echo*echoes_per_scan/dconv_fact; i++) dconvi_sum[i] = 0;
+	for (i=0; i<samples_per_echo*echoes_per_scan/dconv_fact; i++) dconvq_sum[i] = 0;
 
 	for (iterate=1; iterate<=number_of_iteration; iterate++) {
 		// printf("\n*** RUN %d ***\n",iterate);
@@ -1247,20 +1351,40 @@ void CPMG_iterate (
 
 		// process the data
 		if (ph_cycl_en) {
-			if (iterate % 2 == 0)
+			if (iterate % 2 == 0) {
 				for (i=0; i<samples_per_echo*echoes_per_scan; i++) Asum[i]-=rddata_16[i];
-			else
+				for (i=0; i<samples_per_echo*echoes_per_scan/dconv_fact; i++) dconvi_sum[i]-=dconvi[i];
+				for (i=0; i<samples_per_echo*echoes_per_scan/dconv_fact; i++) dconvq_sum[i]-=dconvq[i];
+			}
+			else {
 				for (i=0; i<samples_per_echo*echoes_per_scan; i++) Asum[i]+=rddata_16[i];
+				for (i=0; i<samples_per_echo*echoes_per_scan/dconv_fact; i++) dconvi_sum[i]+=dconvi[i];
+				for (i=0; i<samples_per_echo*echoes_per_scan/dconv_fact; i++) dconvq_sum[i]+=dconvq[i];
+			}
 		}
 		else {
 			for (i=0; i<samples_per_echo*echoes_per_scan; i++) Asum[i]+=rddata_16[i];
+			for (i=0; i<samples_per_echo*echoes_per_scan/dconv_fact; i++) dconvi_sum[i]+=dconvi[i];
+			for (i=0; i<samples_per_echo*echoes_per_scan/dconv_fact; i++) dconvq_sum[i]+=dconvq[i];
 		}
 
 	}
 
+	// write raw data sum
 	sprintf(pathname,"%s/%s",foldername,"asum");	// put the data into the data folder
 	fptr = fopen(pathname, "w");
 	for(i=0; i<samples_per_echo*echoes_per_scan; i++) fprintf(fptr, "%d\n", Asum[i]);
+	fclose(fptr);
+
+	// write downconverted data sum in-phase
+	sprintf(pathname,"%s/%s",foldername,"dconvi");	// put the data into the data folder
+	fptr = fopen(pathname, "w");
+	for(i=0; i<samples_per_echo*echoes_per_scan/dconv_fact; i++) fprintf(fptr, "%d\n", dconvi_sum[i]);
+	fclose(fptr);
+
+	sprintf(pathname,"%s/%s",foldername,"dconvq");	// put the data into the data folder
+	fptr = fopen(pathname, "w");
+	for(i=0; i<samples_per_echo*echoes_per_scan/dconv_fact; i++) fprintf(fptr, "%d\n", dconvq_sum[i]);
 	fclose(fptr);
 
 
@@ -2028,8 +2152,9 @@ int main(int argc, char * argv[]) {
 
 // CPMG Iterate (rename the output to "cpmg_iterate"). data_nowrite in CPMG_Sequence should 0
 // if CPMG Sequence is used without writing to text file, rename the output to "cpmg_iterate_direct". Set this setting in CPMG_Sequence: data_nowrite = 1
-/*int main(int argc, char * argv[]) {
-    // printf("NMR system start\n");
+//
+int main(int argc, char * argv[]) {
+    printf("NMR system start\n");
 
     // input parameters
     double cpmg_freq = atof(argv[1]);
@@ -2083,7 +2208,7 @@ int main(int argc, char * argv[]) {
 
     return 0;
 }
-*/
+//
 
 /* FID Iterate (rename the output to "fid")
 int main(int argc, char * argv[]) {
@@ -2117,7 +2242,7 @@ int main(int argc, char * argv[]) {
 }
 */
 
-// noise Iterate (rename the output to "noise")
+/* noise Iterate (rename the output to "noise")
 int main(int argc, char * argv[]) {
 
     // input parameters
@@ -2144,4 +2269,4 @@ int main(int argc, char * argv[]) {
     close_physical_memory_device();
     return 0;
 }
-//
+*/

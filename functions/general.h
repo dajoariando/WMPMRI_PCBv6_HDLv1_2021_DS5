@@ -1,4 +1,6 @@
 // offsets for output control signal
+#define DUP_en_ofst					(11)
+#define QSW_en_ofst					(10)
 #define NMR_CNT_RESET_ofst			(9)
 #define PLL_ANALYZER_RST_ofst		(8)
 #define PLL_NMR_SYS_RST_ofst		(7)
@@ -11,6 +13,8 @@
 #define DAC_CLR_ofst				(0)
 
 // Output control signal to FPGA
+#define DUP_en				(1<<DUP_en_ofst)
+#define QSW_en				(1<<QSW_en_ofst)
 #define NMR_CNT_RESET		(1<<NMR_CNT_RESET_ofst)
 #define PLL_ANALYZER_RST	(1<<PLL_ANALYZER_RST_ofst)
 #define PLL_NMR_SYS_RST		(1<<PLL_NMR_SYS_RST_ofst)
@@ -21,6 +25,7 @@
 #define PHASE_CYCLING		(1<<PHASE_CYCLING_ofst)
 #define DAC_LDAC_en			(1<<DAC_LDAC_en_ofst)
 #define DAC_CLR				(1<<DAC_CLR_ofst)
+
 #define CNT_OUT_default		(DAC_CLR | NMR_CLK_GATE_AVLN)
 
 // Output control signal to FPGA via I2C
@@ -31,6 +36,7 @@
 #define PAMP_IN_SEL_TEST_ofst	(4)
 #define PAMP_IN_SEL_RX_ofst		(5)
 #define GPIO_GEN_PURP_1_ofst	(6)
+#define MTCH_NTWRK_RST_ofst		(6) //  the same pin as GPIO_GEN_PURP_1_ofst
 #define PSU_5V_ADC_EN_ofst		(7)
 #define RX_AMP_GAIN_2_ofst		(8)
 #define RX_AMP_GAIN_1_ofst		(9)
@@ -48,6 +54,7 @@
 #define PAMP_IN_SEL_TEST_msk	(1<<PAMP_IN_SEL_TEST_ofst)
 #define PAMP_IN_SEL_RX_msk		(1<<PAMP_IN_SEL_RX_ofst)
 #define GPIO_GEN_PURP_1_msk		(1<<GPIO_GEN_PURP_1_ofst)
+#define MTCH_NTWRK_RST_msk		(1<<MTCH_NTWRK_RST_ofst) //  the same pin as GPIO_GEN_PURP_1_ofst, active-low
 #define PSU_5V_ADC_EN_msk		(1<<PSU_5V_ADC_EN_ofst)
 #define RX_AMP_GAIN_2_msk		(1<<RX_AMP_GAIN_2_ofst)
 #define RX_AMP_GAIN_1_msk		(1<<RX_AMP_GAIN_1_ofst)
@@ -58,9 +65,12 @@
 #define PSU_5V_ANA_P_EN_msk		(1<<PSU_5V_ANA_P_EN_ofst)
 #define PSU_5V_ANA_N_EN_msk		(1<<PSU_5V_ANA_N_EN_ofst)
 
-#define CNT_I2C_default		0b0000000000000000
-
-
+#ifdef PCBv4_APR2019
+	#define CNT_I2C_default		(MTCH_NTWRK_RST_msk)
+#endif /* PCBv4_APR2019 */
+#ifdef PCBv2_FEB2018
+	#define CNT_I2C_default		(0)
+#endif /* PCBv2_FEB2018 */
 
 // Offsets for input status signal
 #define PLL_ANALYZER_lock_ofst		(2)
