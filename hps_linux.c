@@ -766,6 +766,22 @@ void fifo_to_sdram_dma_trf (uint32_t transfer_length) {
 	alt_write_word(h2p_dma_addr+DMA_CONTROL_OFST,	DMA_CTRL_SWRST_MSK); 	// write twice to do software reset
 	alt_write_word(h2p_dma_addr+DMA_CONTROL_OFST,	DMA_CTRL_SWRST_MSK); 	// software resetted
 	alt_write_word(h2p_dma_addr+DMA_STATUS_OFST,	0x0); 					// clear the DONE bit
+
+	unsigned int en_mesg = 1;
+	unsigned int dma_status;
+	dma_status = alt_read_word(h2p_dma_addr+DMA_STATUS_OFST);
+			if (en_mesg) {
+				printf("\tstatus reg: 0x%x\n",dma_status);
+				if (!(dma_status & DMA_STAT_DONE_MSK)) {
+					printf("\tDMA transaction is not done.\n");
+					usleep(500000); // wait time to prevent overloading the DMA bus arbitration request
+				}
+				if (dma_status & DMA_STAT_BUSY_MSK) {
+					printf("\tDMA is busy.\n");
+					usleep(500000); // wait time to prevent overloading the DMA bus arbitration request
+				}
+			}
+
 	alt_write_word(h2p_dma_addr+DMA_READADDR_OFST,	ADC_FIFO_MEM_OUT_BASE); // set DMA read address
 	alt_write_word(h2p_dma_addr+DMA_WRITEADDR_OFST,	SDRAM_BASE);			// set DMA write address
 	alt_write_word(h2p_dma_addr+DMA_LENGTH_OFST,	transfer_length*4);		// set transfer length (in byte, so multiply by 4 to get word-addressing)
@@ -785,12 +801,13 @@ void datawrite_with_dma (uint32_t transfer_length, uint8_t en_mesg) {
 			printf("\tstatus reg: 0x%x\n",dma_status);
 			if (!(dma_status & DMA_STAT_DONE_MSK)) {
 				printf("\tDMA transaction is not done.\n");
+				usleep(500000); // wait time to prevent overloading the DMA bus arbitration request
 			}
 			if (dma_status & DMA_STAT_BUSY_MSK) {
 				printf("\tDMA is busy.\n");
+				usleep(500000); // wait time to prevent overloading the DMA bus arbitration request
 			}
 		}
-		usleep(10); // wait time to prevent overloading the DMA bus arbitration request
 	}
 	while (!(dma_status & DMA_STAT_DONE_MSK) || (dma_status & DMA_STAT_BUSY_MSK)); // keep in the loop when the 'DONE' bit is '0' and 'BUSY' bit is '1'
 
@@ -1030,7 +1047,7 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 
 	// read settings
 	uint8_t store_to_sdram_only = 0; // do not write the data from fifo to text file (external reading mechanism should be implemented)
-	uint8_t store_and_read_from_sdram = 0; // store data to sdram (increasing memory limit). Or else the program reads data directly from the fifo
+	uint8_t store_and_read_from_sdram = 1; // store data to sdram (increasing memory limit). Or else the program reads data directly from the fifo
 	uint8_t write_data_to_file = 0; // write the individual scan data to a text file
 
 	usleep(scan_spacing_us);
@@ -1125,33 +1142,10 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 	// Set_DPS (h2p_nmr_pll_addr, 3, 270, DISABLE_MESSAGE);
 	// usleep(scan_spacing_us);
 
-	// process downconverted data
-	while ( alt_read_word(h2p_ctrl_in_addr) & (0x01<<NMR_SEQ_run_ofst) );
-	usleep(300);
-	fifo_mem_level = alt_read_word(h2p_dconvi_csr_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
-	for (i=0; fifo_mem_level>0; i++) {			// FIFO is 32-bit, while 1-sample is only 16-bit. FIFO organize this automatically. So, fetch only amount_of_data shifted by 2 to get amount_of_data/2.
-		dconvi[i] = alt_read_word(h2p_dconvi_addr);
-		//printf("dconvi = %d",dconvi[i]);
-		fifo_mem_level--;
-		if (fifo_mem_level == 0) {
-			fifo_mem_level = alt_read_word(h2p_dconvi_csr_addr+ALTERA_AVALON_FIFO_LEVEL_REG);
-		}
-	}
-	fifo_mem_level = alt_read_word(h2p_dconvq_csr_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
-	for (i=0; fifo_mem_level>0; i++) {			// FIFO is 32-bit, while 1-sample is only 16-bit. FIFO organize this automatically. So, fetch only amount_of_data shifted by 2 to get amount_of_data/2.
-		dconvq[i] = alt_read_word(h2p_dconvq_addr);
-		//printf("dconvi = %d",dconvq[i]);
-		fifo_mem_level--;
-		if (fifo_mem_level == 0) {
-			fifo_mem_level = alt_read_word(h2p_dconvq_csr_addr+ALTERA_AVALON_FIFO_LEVEL_REG);
-		}
-	}
-
-
 	// process raw data
 	if (!store_to_sdram_only) { // write data to text with C programming
 		if (store_and_read_from_sdram) { // if read with dma is intended
-			datawrite_with_dma(samples_per_echo*echoes_per_scan/2,DISABLE_MESSAGE);
+			datawrite_with_dma(samples_per_echo*echoes_per_scan/2,ENABLE_MESSAGE);
 		}
 		else { // if read from fifo is intended
 			// wait until fsm stops
@@ -1227,6 +1221,28 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 	else { // do not write data to text with C programming: external mechanism should be implemented
 		fifo_to_sdram_dma_trf (samples_per_echo*echoes_per_scan/2); // start DMA process
 		//while ( alt_read_word(h2p_ctrl_in_addr) & (0x01<<NMR_SEQ_run_ofst) ); // might not be needed as the system will wait until data is available anyway
+	}
+
+	// process downconverted data
+	while ( alt_read_word(h2p_ctrl_in_addr) & (0x01<<NMR_SEQ_run_ofst) );
+	usleep(300);
+	fifo_mem_level = alt_read_word(h2p_dconvi_csr_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
+	for (i=0; fifo_mem_level>0; i++) {			// FIFO is 32-bit, while 1-sample is only 16-bit. FIFO organize this automatically. So, fetch only amount_of_data shifted by 2 to get amount_of_data/2.
+		dconvi[i] = alt_read_word(h2p_dconvi_addr);
+		//printf("dconvi = %d",dconvi[i]);
+		fifo_mem_level--;
+		if (fifo_mem_level == 0) {
+			fifo_mem_level = alt_read_word(h2p_dconvi_csr_addr+ALTERA_AVALON_FIFO_LEVEL_REG);
+		}
+	}
+	fifo_mem_level = alt_read_word(h2p_dconvq_csr_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
+	for (i=0; fifo_mem_level>0; i++) {			// FIFO is 32-bit, while 1-sample is only 16-bit. FIFO organize this automatically. So, fetch only amount_of_data shifted by 2 to get amount_of_data/2.
+		dconvq[i] = alt_read_word(h2p_dconvq_addr);
+		//printf("dconvi = %d",dconvq[i]);
+		fifo_mem_level--;
+		if (fifo_mem_level == 0) {
+			fifo_mem_level = alt_read_word(h2p_dconvq_csr_addr+ALTERA_AVALON_FIFO_LEVEL_REG);
+		}
 	}
 
 }
