@@ -90,6 +90,7 @@ void *h2p_delay_t1_addr						= NULL; // delay t1 length
 void *h2p_echo_per_scan_addr 				= NULL; // the amount of echoes on 1 NMR scan
 void *h2p_t1_pulse							= NULL; // the pulse length before CPMG (T1 measurement)
 void *h2p_t1_delay							= NULL; // the delay length before CPMG (T1 measurement)
+void *h2p_adc_val_sub						= NULL; // the zero bias ADC voltage for downconversion DC bias removal
 
 // adc addresses
 void *h2p_adc_fifo_addr						= NULL; // ADC FIFO output data address
@@ -168,14 +169,22 @@ void tx_sampling(double tx_freq, double sampfreq, unsigned int samples_per_echo,
 FILE	*fptr;
 long i;
 long j;
-unsigned int rddata [128000];
-// unsigned int *rddata;
-unsigned int rddata_16[32000000];
-// unsigned int *rddata_16;
-unsigned int dconvi[8000000]; // downconverted i data
-unsigned int dconvq[8000000]; // downconverted q data
+
+
+unsigned int *rddata;
+unsigned int *rddata_16;
+int *dconvi;
+int *dconvq;
+
+// unsigned int rddata [128000];
+// unsigned int rddata_16[256000];
+//unsigned int dconvi[64000]; // downconverted i data
+//unsigned int dconvq[64000]; // downconverted q data
+
 char foldername[50]; // variable to store folder name of the measurement data
 char pathname[60];
+
+int dconv_fact = 4; // downconversion factor, see Qsys FIR filter
 
 // FPGA control signal address
 uint32_t ctrl_out = CNT_OUT_default;					// default variable to store the current control state
