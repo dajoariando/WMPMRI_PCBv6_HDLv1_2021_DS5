@@ -1031,6 +1031,12 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 
 	double init_delay_inherent = 2.25; // inherehent delay factor from the HDL structure, in ADC clock cycles
 	double acq_window_safety_fact = (1/cpmg_freq)*10; // safety factor for acquisition window in clock cycles
+	double rx_dly_us = 0; // set the rx delay to generate RX_EN or DUP_EN
+
+	// set delay for the RX_EN or duplexer enable. Also serves as the Qswitch enable if available
+	unsigned int rx_dly = (unsigned int)(lround(rx_dly_us*adc_ltc1746_freq));
+	alt_write_word( h2p_rx_delay_addr , rx_dly );
+	double rx_dly_us_achieved = (double)rx_dly / adc_ltc1746_freq;
 
 	// read settings
 	uint8_t store_to_sdram_only = 0; // do not write the data from fifo to text file (external reading mechanism should be implemented)
@@ -1075,6 +1081,7 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 		printf("\tDelay 2\t\t\t: %7.3f us (%d)\n", (double)cpmg_param[DELAY2_OFFST]/nmr_fsm_clkfreq, cpmg_param[DELAY2_OFFST]);
 		printf("\tADC init delay\t: %7.3f us (%d) -not-precise\n", ((double)cpmg_param[INIT_DELAY_ADC_OFFST]+init_delay_inherent)/adc_ltc1746_freq, cpmg_param[INIT_DELAY_ADC_OFFST]); // not precise due to the clock uncertainties between the main clock and ADC clock
 		printf("\tADC acq window\t: %7.3f us (%d)\n", ((double)samples_per_echo)/adc_ltc1746_freq, samples_per_echo);
+		printf("\tRX_EN or DUP_EN delay\t: %7.3f us (%d)\n", rx_dly_us_achieved, rx_dly);
 	}
 	if (cpmg_param[INIT_DELAY_ADC_OFFST] < 2) {
 		printf("\t[WARNING] Computed ADC_init_delay < 2 clks\n");
@@ -1083,11 +1090,13 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 	if (((double)samples_per_echo)/adc_ltc1746_freq > (echo_spacing_us-pulse2_us)) {
 		printf("\t[ERROR] acq.window (%.1fus) >> tE-p180 (%.1fus).\n",(((double)samples_per_echo)/adc_ltc1746_freq),echo_spacing_us-pulse2_us);
 		printf("\t[ERROR] Increase tE or reduce SpE or reduce p180.\n");
+		return;
 	}
-	double excess_acq = (echo_spacing_us-((double)samples_per_echo)/adc_ltc1746_freq) / 2 - init_adc_delay_compensation - acq_window_safety_fact;
+	double excess_acq = ( echo_spacing_us-((double)samples_per_echo)/adc_ltc1746_freq ) / 2 - init_adc_delay_compensation - acq_window_safety_fact - rx_dly_us_achieved;
 	if (excess_acq < 0) {
 		printf("\t[ERROR] (acq.window) exceeds (delay180.window) by %.1fus.\n",-excess_acq);
-		printf("\t[ERROR] Increase tE or reduce SpE or reduce p180 or adjust echo_shift\n");
+		printf("\t[ERROR] Increase tE or reduce SpE or reduce p180 or adjust echo_shift or carefully adjust rx_delay\n");
+		return;
 	}
 
 	// set pll for CPMG

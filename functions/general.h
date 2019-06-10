@@ -1,6 +1,4 @@
 // offsets for output control signal
-#define DUP_en_ofst					(11)
-#define QSW_en_ofst					(10)
 #define NMR_CNT_RESET_ofst			(9)
 #define PLL_ANALYZER_RST_ofst		(8)
 #define PLL_NMR_SYS_RST_ofst		(7)
@@ -13,8 +11,6 @@
 #define DAC_CLR_ofst				(0)
 
 // Output control signal to FPGA
-#define DUP_en				(1<<DUP_en_ofst)
-#define QSW_en				(1<<QSW_en_ofst)
 #define NMR_CNT_RESET		(1<<NMR_CNT_RESET_ofst)
 #define PLL_ANALYZER_RST	(1<<PLL_ANALYZER_RST_ofst)
 #define PLL_NMR_SYS_RST		(1<<PLL_NMR_SYS_RST_ofst)

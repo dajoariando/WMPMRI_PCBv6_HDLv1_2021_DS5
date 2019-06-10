@@ -184,7 +184,7 @@ int *dconvq;
 char foldername[50]; // variable to store folder name of the measurement data
 char pathname[60];
 
-int dconv_fact = 4; // downconversion factor, see Qsys FIR filter
+int dconv_fact = 1; // downconversion factor, see Qsys FIR filter
 
 // FPGA control signal address
 uint32_t ctrl_out = CNT_OUT_default;					// default variable to store the current control state
