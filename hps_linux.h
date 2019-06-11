@@ -92,6 +92,15 @@ void *h2p_t1_pulse							= NULL; // the pulse length before CPMG (T1 measurement
 void *h2p_t1_delay							= NULL; // the delay length before CPMG (T1 measurement)
 void *h2p_adc_val_sub						= NULL; // the zero bias ADC voltage for downconversion DC bias removal
 
+volatile unsigned int *h2p_dmadummy_addr				= NULL;
+volatile unsigned int *h2p_fifoin_dummy_addr			= NULL;
+volatile unsigned int *h2p_fifoout_dummy_addr			= NULL;
+volatile unsigned int *h2p_fifoincsr_dummy_addr			= NULL;
+volatile unsigned int *h2p_fifoin64dummy_addr			= NULL;
+volatile unsigned int *h2p_fifoout64dummy_addr			= NULL;
+volatile unsigned int *h2p_fifoout64csrdummy_addr		= NULL;
+
+
 // adc addresses
 void *h2p_adc_fifo_addr						= NULL; // ADC FIFO output data address
 // void *h2p_adc_fifo_status_addr			= NULL; // ADC FIFO status address
@@ -110,6 +119,8 @@ volatile unsigned int	*h2p_dconvq_csr_addr	= NULL; // downconverted data q fifo 
 
 // DMA & SDRAM
 volatile unsigned int *h2p_dma_addr = NULL;
+volatile unsigned int *h2p_dconvi_dma_addr = NULL;
+volatile unsigned int *h2p_dconvq_dma_addr = NULL;
 volatile unsigned int *h2p_sdram_addr = NULL;
 
 
@@ -143,7 +154,7 @@ void sweep_vbias();												// sweep the vbias
 void write_vvarac_int(int16_t dac_v_varac);						// write v_varactor with a value
 void sweep_vvarac ();											// sweep the v_varactor
 void sweep_rx_gain ();										// sweep the rx gain (FOREVER LOOP)
-void fifo_to_sdram_dma_trf (uint32_t transfer_length);
+void fifo_to_sdram_dma_trf (volatile unsigned int * dma_addr, uint32_t rd_addr, uint32_t wr_addr, uint32_t transfer_length);
 void datawrite_with_dma (uint32_t transfer_length, uint8_t en_mesg);
 void close_system ();
 void CPMG_Sequence (
