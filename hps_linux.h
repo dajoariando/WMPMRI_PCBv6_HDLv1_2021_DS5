@@ -199,6 +199,7 @@ int dconv_fact = 1; // downconversion factor, see Qsys FIR filter
 
 // FPGA control signal address
 uint32_t ctrl_out = CNT_OUT_default;					// default variable to store the current control state
-uint32_t ctrl_i2c = CNT_I2C_default;
+uint32_t ctrl_i2c0 = CNT_I2C_default;
+uint32_t ctrl_i2c1 = CNT_I2C_default;
 
 #endif
