@@ -143,6 +143,7 @@ void mmap_fpga_peripherals() {
 #endif
 
 	h2p_spi_mtch_ntwrk_addr			= h2f_lw_axi_master + SPI_MTCH_NTWRK_BASE;
+	h2p_spi_afe_relays_addr			= h2f_lw_axi_master + SPI_AFE_RELAYS_BASE;
 	h2p_analyzer_pll_addr			= h2f_lw_axi_master + ANALYZER_PLL_RECONFIG_BASE;
 	h2p_t1_pulse					= h2f_lw_axi_master + NMR_PARAMETERS_PULSE_T1_BASE;
 	h2p_t1_delay					= h2f_lw_axi_master + NMR_PARAMETERS_DELAY_T1_BASE;
@@ -384,8 +385,8 @@ void write_relay_cnt (uint16_t c_shunt, uint16_t c_series, uint8_t en_mesg) {
 #ifdef PCBv5_JUN2019 // write matching network via spi
 void write_pamprelay_cnt (uint16_t val, uint8_t en_mesg) {
 
-	alt_write_word( (h2p_spi_mtch_ntwrk_addr + SPI_TXDATA_offst) , (uint32_t) val); // set the pamp relay
-	while (!(alt_read_word(h2p_spi_mtch_ntwrk_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) )); // wait for the spi command to finish
+	alt_write_word( (h2p_spi_afe_relays_addr + SPI_TXDATA_offst) , (uint32_t) val);
+	while (!(alt_read_word(h2p_spi_afe_relays_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) )); // wait for the spi command to finish
 	if (en_mesg) {
 		printf("\tpamprelay control via spi (PCB v5 only!)...\n");
 	}
@@ -393,7 +394,50 @@ void write_pamprelay_cnt (uint16_t val, uint8_t en_mesg) {
 }
 #endif /* PCBv5_JUN2019 */
 
-void write_i2c_int_cnt (uint32_t en, uint32_t addr_msk, uint8_t en_mesg) {
+void check_i2c_isr_stat (volatile unsigned long * i2c_addr, uint8_t en_mesg) {
+	uint32_t isr_status;
+	isr_status = alt_read_word( i2c_addr+ISR_OFST);
+	if (isr_status & RX_OVER_MSK) {
+		printf("\t[ERROR] Receive data FIFO has overrun condition, new data is lost\n");
+		alt_write_word( (i2c_addr+ISR_OFST) , RX_OVER_MSK ); // clears receive overrun
+	}
+	else {
+		if (en_mesg) printf("\t[NORMAL] No receive overrun\n");
+	}
+	if (isr_status & ARBLOST_DET_MSK) {
+		printf("\t[ERROR] Core has lost bus arbitration\n");
+		alt_write_word( (i2c_addr+ISR_OFST) , ARBLOST_DET_MSK ); // clears receive overrun
+	}
+	else {
+		if (en_mesg) printf("\t[NORMAL] No arbitration lost\n");
+	}
+	if (isr_status & NACK_DET_MSK) {
+		printf("\t[ERROR] NACK is received by the core\n");
+		alt_write_word( (i2c_addr+ISR_OFST) , NACK_DET_MSK ); // clears receive overrun
+	}
+	else {
+		if (en_mesg) printf("\t[NORMAL] ACK has been received\n");
+	}
+	if (isr_status & RX_READY_MSK) {
+		printf("\t[WARNING] RX_DATA_FIFO level is equal or more than its threshold\n");
+	}
+	else {
+		if (en_mesg) printf("\t[NORMAL] RX_DATA_FIFO level is less than its threshold\n");
+	}
+	if (isr_status & TX_READY_MSK) {
+		printf("\t[WARNING] TFR_CMD level is equal or more than its threshold\n");
+	}
+	else {
+		if (en_mesg) printf("\t[NORMAL] TFR_CMD level is less than its threshold\n");
+	}
+
+	if (en_mesg) printf("\t --- \n");
+}
+
+#ifdef PCBv5_JUN2019 // write control signal via spi
+void write_i2c_int_cnt (uint32_t en, uint32_t addr_msk0, uint32_t addr_msk1, uint8_t en_mesg) {
+
+
 	// en		: 1 for enable the address mask given, 0 for disable the address mask given
 	// addr_msk	: give 1 to the desired address mask that needs to be changed, and 0 to the one that doesn't need to be changed
 	// en_msg	: enable error message
@@ -402,42 +446,30 @@ void write_i2c_int_cnt (uint32_t en, uint32_t addr_msk, uint8_t en_mesg) {
 	i2c_addr_cnt0 = 0x40;	// i2c address for TCA9555PWR used by the relay
 	i2c_addr_cnt1 = 0x42;
 
-	uint32_t addr_msk0 = addr_msk & 0xFFFF;
-#ifdef PCBv5_JUN2019
-	uint32_t addr_msk1 = (addr_msk >> 16) & 0xFFFF;
-#endif
+	addr_msk0 = addr_msk0 & 0xFFFF;
+	addr_msk1 = addr_msk1 & 0xFFFF;
 
 	i2c_addr_cnt0 >>= 1;				// shift by one because the LSB address is not used as an address (controlled by the Altera I2C IP)
 	i2c_addr_cnt1 >>= 1;				// shift by one because the LSB address is not used as an address (controlled by the Altera I2C IP)
 
 	uint8_t i2c0_port0, i2c0_port1;
-
-#ifdef PCBv5_JUN2019
 	uint8_t i2c1_port0, i2c1_port1;
-#endif
 
 	if (en) {
 		ctrl_i2c0 = ctrl_i2c0 | addr_msk0;
-#ifdef PCBv5_JUN2019
 		ctrl_i2c1 = ctrl_i2c1 | addr_msk1;
-#endif
 	}
 	else {
 		ctrl_i2c0 = ctrl_i2c0 & ~(addr_msk0);
-#ifdef PCBv5_JUN2019
 		ctrl_i2c1 = ctrl_i2c1 & ~(addr_msk1);
-#endif
 	}
 
 	i2c0_port0 = ctrl_i2c0 & 0xFF;
 	i2c0_port1 = (ctrl_i2c0 >> 8) & 0xFF;
-#ifdef PCBv5_JUN2019
 	i2c1_port0 = ctrl_i2c1 & 0xFF;
 	i2c1_port1 = (ctrl_i2c1 >> 8) & 0xFF;
-#endif
 
 	alt_write_word( (h2p_i2c_int_addr+ISR_OFST) , RX_OVER_MSK|ARBLOST_DET_MSK|NACK_DET_MSK ); // RESET THE I2C FROM PREVIOUS ERRORS
-
 	alt_write_word( (h2p_i2c_int_addr+CTRL_OFST), 1<<CORE_EN_SHFT); // enable i2c core
 
 	alt_write_word( (h2p_i2c_int_addr+SCL_LOW_OFST), 250); // set the SCL_LOW_OFST to 250 for 100 kHz with 50 MHz clock
@@ -446,129 +478,61 @@ void write_i2c_int_cnt (uint32_t en, uint32_t addr_msk, uint8_t en_mesg) {
 
 	// set values for i2c_addr_cnt0
 	// set port 0 as output
-	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (1<<STA_SHFT) | (0<<STO_SHFT) | (i2c_addr_cnt0<<AD_SHFT) | (WR_I2C<<RW_D_SHFT) );
-	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (CNT_REG_CONF_PORT0 & I2C_DATA_MSK) );
-	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (1<<STO_SHFT) | ((0x00) & I2C_DATA_MSK) );
+	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (1<<STA_SHFT) | (0<<STO_SHFT) | (i2c_addr_cnt0<<AD_SHFT) | (WR_I2C<<RW_D_SHFT) ); check_i2c_isr_stat (h2p_i2c_int_addr, en_mesg);
+	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (CNT_REG_CONF_PORT0 & I2C_DATA_MSK) ); check_i2c_isr_stat (h2p_i2c_int_addr, en_mesg);
+	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (1<<STO_SHFT) | ((0x00) & I2C_DATA_MSK) ); check_i2c_isr_stat (h2p_i2c_int_addr, en_mesg);
+
 	// set port 1 as output
-	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (1<<STA_SHFT) | (0<<STO_SHFT) | (i2c_addr_cnt0<<AD_SHFT) | (WR_I2C<<RW_D_SHFT) );
-	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (CNT_REG_CONF_PORT1 & I2C_DATA_MSK) );
-	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (1<<STO_SHFT) | ((0x0F) & I2C_DATA_MSK) ); // configure first 4 bits as input
+	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (1<<STA_SHFT) | (0<<STO_SHFT) | (i2c_addr_cnt0<<AD_SHFT) | (WR_I2C<<RW_D_SHFT) ); check_i2c_isr_stat (h2p_i2c_int_addr, en_mesg);
+	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (CNT_REG_CONF_PORT1 & I2C_DATA_MSK) ); check_i2c_isr_stat (h2p_i2c_int_addr, en_mesg);
+	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (1<<STO_SHFT) | ((0x0F) & I2C_DATA_MSK) ); check_i2c_isr_stat (h2p_i2c_int_addr, en_mesg); // configure first 4 bits as input
+
 	// set output on port 0
-	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (i2c_addr_cnt0<<AD_SHFT) | (WR_I2C<<RW_D_SHFT) );
-	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (CNT_REG_OUT_PORT0 & I2C_DATA_MSK) );
-	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (1<<STO_SHFT) | ((i2c0_port0) & I2C_DATA_MSK) );
+	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (i2c_addr_cnt0<<AD_SHFT) | (WR_I2C<<RW_D_SHFT) ); check_i2c_isr_stat (h2p_i2c_int_addr, en_mesg);
+	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (CNT_REG_OUT_PORT0 & I2C_DATA_MSK) ); check_i2c_isr_stat (h2p_i2c_int_addr, en_mesg);
+	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (1<<STO_SHFT) | ((i2c0_port0) & I2C_DATA_MSK) ); check_i2c_isr_stat (h2p_i2c_int_addr, en_mesg);
+
 	// set output on port 1
-	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (i2c_addr_cnt0<<AD_SHFT) | (WR_I2C<<RW_D_SHFT) );
-	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (CNT_REG_OUT_PORT1 & I2C_DATA_MSK) );
-	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (1<<STO_SHFT) | ((i2c0_port1) & I2C_DATA_MSK) );
+	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (i2c_addr_cnt0<<AD_SHFT) | (WR_I2C<<RW_D_SHFT) ); check_i2c_isr_stat (h2p_i2c_int_addr, en_mesg);
+	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (CNT_REG_OUT_PORT1 & I2C_DATA_MSK) ); check_i2c_isr_stat (h2p_i2c_int_addr, en_mesg);
+	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (1<<STO_SHFT) | ((i2c0_port1) & I2C_DATA_MSK) ); check_i2c_isr_stat (h2p_i2c_int_addr, en_mesg);
 
-	if (en_mesg) {
-		printf("Status for i2c transactions:\n");
-	}
-
-	uint32_t isr_status;
-	isr_status = alt_read_word( h2p_i2c_int_addr+ISR_OFST);
-	if (isr_status & RX_OVER_MSK) {
-		printf("\t[ERROR] Receive data FIFO has overrun condition, new data is lost\n");
-		alt_write_word( (h2p_i2c_int_addr+ISR_OFST) , RX_OVER_MSK ); // clears receive overrun
-	}
-	else {
-		if (en_mesg) printf("\t[NORMAL] No receive overrun\n");
-	}
-	if (isr_status & ARBLOST_DET_MSK) {
-		printf("\t[ERROR] Core has lost bus arbitration\n");
-		alt_write_word( (h2p_i2c_int_addr+ISR_OFST) , ARBLOST_DET_MSK ); // clears receive overrun
-	}
-	else {
-		if (en_mesg) printf("\t[NORMAL] No arbitration lost\n");
-	}
-	if (isr_status & NACK_DET_MSK) {
-		printf("\t[ERROR] NACK is received by the core\n");
-		alt_write_word( (h2p_i2c_int_addr+ISR_OFST) , NACK_DET_MSK ); // clears receive overrun
-	}
-	else {
-		if (en_mesg) printf("\t[NORMAL] ACK has been received\n");
-	}
-	if (isr_status & RX_READY_MSK) {
-		printf("\t[WARNING] RX_DATA_FIFO level is equal or more than its threshold\n");
-	}
-	else {
-		if (en_mesg) printf("\t[NORMAL] RX_DATA_FIFO level is less than its threshold\n");
-	}
-	if (isr_status & TX_READY_MSK) {
-		printf("\t[WARNING] TFR_CMD level is equal or more than its threshold\n");
-	}
-	else {
-		if (en_mesg) printf("\t[NORMAL] TFR_CMD level is less than its threshold\n");
-	}
-
-#ifdef PCBv5_JUN2019
+	//if (en_mesg) {
+	//	printf("Status for i2c transactions:\n");
+	//	printf("\ti2c0_port0 : %x\n", i2c0_port0);
+	//	printf("\ti2c0_port1 : %x\n", i2c0_port1);
+	//}
 
 	// set values for i2c_addr_cnt0
 	// set port 0 as output
-	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (1<<STA_SHFT) | (0<<STO_SHFT) | (i2c_addr_cnt1<<AD_SHFT) | (WR_I2C<<RW_D_SHFT) );
-	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (CNT_REG_CONF_PORT0 & I2C_DATA_MSK) );
-	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (1<<STO_SHFT) | ((0xFF) & I2C_DATA_MSK) ); // configure all bits as input
+	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (1<<STA_SHFT) | (0<<STO_SHFT) | (i2c_addr_cnt1<<AD_SHFT) | (WR_I2C<<RW_D_SHFT) ); check_i2c_isr_stat (h2p_i2c_int_addr, en_mesg);
+	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (CNT_REG_CONF_PORT0 & I2C_DATA_MSK) ); check_i2c_isr_stat (h2p_i2c_int_addr, en_mesg);
+	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (1<<STO_SHFT) | ((0xFF) & I2C_DATA_MSK) );  check_i2c_isr_stat (h2p_i2c_int_addr, en_mesg);// configure all bits as input
 	// set port 1 as output
-	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (1<<STA_SHFT) | (0<<STO_SHFT) | (i2c_addr_cnt1<<AD_SHFT) | (WR_I2C<<RW_D_SHFT) );
-	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (CNT_REG_CONF_PORT1 & I2C_DATA_MSK) );
-	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (1<<STO_SHFT) | ((0x00) & I2C_DATA_MSK) );
+	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (1<<STA_SHFT) | (0<<STO_SHFT) | (i2c_addr_cnt1<<AD_SHFT) | (WR_I2C<<RW_D_SHFT) ); check_i2c_isr_stat (h2p_i2c_int_addr, en_mesg);
+	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (CNT_REG_CONF_PORT1 & I2C_DATA_MSK) ); check_i2c_isr_stat (h2p_i2c_int_addr, en_mesg);
+	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (1<<STO_SHFT) | ((0x00) & I2C_DATA_MSK) ); check_i2c_isr_stat (h2p_i2c_int_addr, en_mesg);
 	// set output on port 0
-	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (i2c_addr_cnt1<<AD_SHFT) | (WR_I2C<<RW_D_SHFT) );
-	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (CNT_REG_OUT_PORT0 & I2C_DATA_MSK) );
-	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (1<<STO_SHFT) | ((i2c1_port0) & I2C_DATA_MSK) );
+	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (i2c_addr_cnt1<<AD_SHFT) | (WR_I2C<<RW_D_SHFT) ); check_i2c_isr_stat (h2p_i2c_int_addr, en_mesg);
+	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (CNT_REG_OUT_PORT0 & I2C_DATA_MSK) ); check_i2c_isr_stat (h2p_i2c_int_addr, en_mesg);
+	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (1<<STO_SHFT) | ((i2c1_port0) & I2C_DATA_MSK) ); check_i2c_isr_stat (h2p_i2c_int_addr, en_mesg);
 	// set output on port 1
-	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (i2c_addr_cnt1<<AD_SHFT) | (WR_I2C<<RW_D_SHFT) );
-	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (CNT_REG_OUT_PORT1 & I2C_DATA_MSK) );
-	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (1<<STO_SHFT) | ((i2c1_port1) & I2C_DATA_MSK) );
+	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (i2c_addr_cnt1<<AD_SHFT) | (WR_I2C<<RW_D_SHFT) ); check_i2c_isr_stat (h2p_i2c_int_addr, en_mesg);
+	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (CNT_REG_OUT_PORT1 & I2C_DATA_MSK) ); check_i2c_isr_stat (h2p_i2c_int_addr, en_mesg);
+	alt_write_word( (h2p_i2c_int_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (1<<STO_SHFT) | ((i2c1_port1) & I2C_DATA_MSK) ); check_i2c_isr_stat (h2p_i2c_int_addr, en_mesg);
 
-	if (en_mesg) {
-		printf("Status for i2c transactions:\n");
-	}
-
-	isr_status = alt_read_word( h2p_i2c_int_addr+ISR_OFST);
-	if (isr_status & RX_OVER_MSK) {
-		printf("\t[ERROR] Receive data FIFO has overrun condition, new data is lost\n");
-		alt_write_word( (h2p_i2c_int_addr+ISR_OFST) , RX_OVER_MSK ); // clears receive overrun
-	}
-	else {
-		if (en_mesg) printf("\t[NORMAL] No receive overrun\n");
-	}
-	if (isr_status & ARBLOST_DET_MSK) {
-		printf("\t[ERROR] Core has lost bus arbitration\n");
-		alt_write_word( (h2p_i2c_int_addr+ISR_OFST) , ARBLOST_DET_MSK ); // clears receive overrun
-	}
-	else {
-		if (en_mesg) printf("\t[NORMAL] No arbitration lost\n");
-	}
-	if (isr_status & NACK_DET_MSK) {
-		printf("\t[ERROR] NACK is received by the core\n");
-		alt_write_word( (h2p_i2c_int_addr+ISR_OFST) , NACK_DET_MSK ); // clears receive overrun
-	}
-	else {
-		if (en_mesg) printf("\t[NORMAL] ACK has been received\n");
-	}
-	if (isr_status & RX_READY_MSK) {
-		printf("\t[WARNING] RX_DATA_FIFO level is equal or more than its threshold\n");
-	}
-	else {
-		if (en_mesg) printf("\t[NORMAL] RX_DATA_FIFO level is less than its threshold\n");
-	}
-	if (isr_status & TX_READY_MSK) {
-		printf("\t[WARNING] TFR_CMD level is equal or more than its threshold\n");
-	}
-	else {
-		if (en_mesg) printf("\t[NORMAL] TFR_CMD level is less than its threshold\n");
-	}
-
-#endif
-
+	//if (en_mesg) {
+	//	printf("Status for i2c transactions:\n");
+	//	printf("\ti2c1_port0 : %x\n", i2c1_port0);
+	//	printf("\ti2c1_port1 : %x\n", i2c1_port1);
+	//}
 
 	alt_write_word( (h2p_i2c_int_addr+CTRL_OFST), 0<<CORE_EN_SHFT); // disable i2c core
 
 	usleep(10000); // delay to finish i2c operation
 
 }
+#endif /* PCBv5_JUN2019 */
 
 void sweep_matching_network() {
 	uint8_t c_sw = 0;
@@ -1195,6 +1159,7 @@ void tx_sampling(double tx_freq, double samp_freq, unsigned int tx_num_of_sample
 	else { // if the amount of data captured didn't match the amount of data being ordered, then something's going on with the acquisition
 		printf("number of data captured and data order : NOT MATCHED\nReconfigure the FPGA immediately\n");
 	}
+
 }
 
 void noise_sampling (unsigned char signal_path, unsigned int num_of_samples, char * filename) {
@@ -1307,8 +1272,8 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 	double rx_dly_us_achieved = (double)rx_dly / adc_ltc1746_freq;
 
 	// read settings
-	uint8_t process_raw_data = 0; // obtain raw data directly (the original implementation, without FPGA downconversion)
-	uint8_t process_dconv_data = 1; // obtain data from downconversion fifo (requires implementation in FPGA as well)
+	uint8_t process_raw_data = 1; // obtain raw data directly (the original implementation, without FPGA downconversion)
+	uint8_t process_dconv_data = 0; // obtain data from downconversion fifo (requires implementation in FPGA as well)
 	uint8_t store_to_sdram_only = 0; // do not write the data from fifo to text file (external reading mechanism should be implemented)
 	uint8_t store_and_read_from_sdram = 0; // store data to sdram (increasing memory limit). Or else the program reads data directly from the fifo
 	uint8_t write_indv_data_to_file = 0; // write the individual scan data to a text file
@@ -2252,6 +2217,7 @@ void wobble_function (double startfreq, double stopfreq, double spacfreq, double
 	stopfreq += (spacfreq/2); // the (spacfreq/2) factor is to compensate double comparison error. double cannot be compared with '==' operator !
 	for (wobbfreq = startfreq; wobbfreq < stopfreq; wobbfreq += spacfreq) {
 		snprintf(wobbname, 100,"wobbdata_%4.3f",wobbfreq);
+		printf("freq: %4.3f\n", wobbfreq);
 		tx_sampling(wobbfreq, sampfreq, wobb_samples, wobbname);
 		usleep(100);		// this delay is necessary. If it's not here, the system will not crash but the i2c will stop working (?), and the reading length is incorrect
 	}
@@ -2370,9 +2336,6 @@ void close_system () {
 #if (defined PCBv4_APR2019) || (defined PCBv2_FEB2018)
 	write_i2c_int_cnt (DISABLE, PAMP_IN_SEL_TEST_msk|PAMP_IN_SEL_RX_msk|PSU_15V_TX_P_EN_msk|PSU_15V_TX_N_EN_msk|AMP_HP_LT1210_EN_msk|PSU_5V_ANA_P_EN_msk|PSU_5V_ANA_N_EN_msk, DISABLE_MESSAGE);
 #endif
-#if (defined PCBv5_JUN2019)
-	write_i2c_int_cnt (DISABLE, PSU_15V_TX_P_EN_msk|PSU_15V_TX_N_EN_msk|PSU_5V_ANA_P_EN_msk|PSU_5V_ANA_N_EN_msk, DISABLE_MESSAGE);
-#endif
 
 	write_i2c_rx_gain (0x0F); //  disable the receiver gain
 
@@ -2436,7 +2399,7 @@ int main(int argc, char * argv[]) {
     open_physical_memory_device();
     mmap_peripherals();
 
-    write_relay_cnt(cshunt, cseries, DISABLE_MESSAGE);
+    write_relay_cnt(cshunt, cseries, ENABLE_MESSAGE);
 
     munmap_peripherals();
     close_physical_memory_device();
@@ -2446,7 +2409,7 @@ int main(int argc, char * argv[]) {
 
 /* I2C pamp input control (rename the output to "spi_pamp_input")
 int main(int argc, char * argv[]) {
-    // printf("pamp input contorl control with SPI\n");
+    // printf("pamp input control control with SPI\n");
 
     // input parameters
     unsigned int cnt_in = atoi(argv[1]);
@@ -2463,16 +2426,24 @@ int main(int argc, char * argv[]) {
 */
 
 // I2C general control (rename the output to "i2c_gnrl")
-int main(int argc, char * argv[]) {
+int main(int argc, char * argv[]) { // argv cannot contain more than so many characters
     // printf("General control with I2C\n");
 
     // input parameters
     unsigned int gnrl_cnt = atoi(argv[1]);
+#ifdef PCBv5_JUN2019
+    unsigned int gnrl_cnt1 = atoi(argv[2]);
+#endif
 
     open_physical_memory_device();
     mmap_peripherals();
 
-    write_i2c_int_cnt (ENABLE, (gnrl_cnt & 0xFFFFFFFF), ENABLE_MESSAGE); // enable the toggled index
+#ifdef PCBv5_JUN2019
+    write_i2c_int_cnt (ENABLE, (gnrl_cnt & 0xFFFF), (gnrl_cnt1 & 0xFFFF), DISABLE_MESSAGE); // enable the toggled index
+#endif
+#ifdef PCBv4_APR2019
+    write_i2c_int_cnt (ENABLE, (gnrl_cnt & 0xFFFF), DISABLE_MESSAGE); // enable the toggled index
+#endif
 
     munmap_peripherals();
     close_physical_memory_device();
@@ -2481,7 +2452,7 @@ int main(int argc, char * argv[]) {
 //
 
 /* Wobble (rename the output to "wobble")
-int main(int argc, char * argv[]) { [ADD DYNAMIC MALLOC LIKE IN CPMG_ITERATE BEFORE EDITING ANYTHING!!!]
+int main(int argc, char * argv[]) { // [ADD DYNAMIC MALLOC LIKE IN CPMG_ITERATE BEFORE EDITING ANYTHING!!!]
     printf("Wobble measurement starts\n");
 
     // input parameters
@@ -2492,10 +2463,15 @@ int main(int argc, char * argv[]) { [ADD DYNAMIC MALLOC LIKE IN CPMG_ITERATE BEF
 
     open_physical_memory_device();
     mmap_peripherals();
-    init_default_system_param();
+    // init_default_system_param();
 
     //WOBBLE
 	unsigned int wobb_samples 	= (unsigned int)(lround(sampfreq/spacfreq));	// the number of ADC samples taken
+
+	// memory allocation
+	rddata_16 = (unsigned int*)malloc(wobb_samples*sizeof(unsigned int));
+	rddata = (unsigned int *)malloc(wobb_samples/2*sizeof(unsigned int));
+
 	wobble_function (
 			startfreq,
 			stopfreq,
@@ -2507,6 +2483,11 @@ int main(int argc, char * argv[]) { [ADD DYNAMIC MALLOC LIKE IN CPMG_ITERATE BEF
 	// close_system();
     munmap_peripherals();
     close_physical_memory_device();
+
+    // free memory
+    free(rddata_16);
+    free(rddata);
+
     return 0;
 }
 */

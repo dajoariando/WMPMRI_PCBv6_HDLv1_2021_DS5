@@ -67,6 +67,7 @@ volatile unsigned long *h2p_i2c_ext_addr		= NULL; // gpio for i2c (used for rela
 volatile unsigned long *h2p_i2c_int_addr		= NULL; // gpio for i2c (used for relay control through io expander chip TCA9555PWR, and also rx gain selector)
 volatile unsigned int *h2p_dac_addr				= NULL; // gpio for dac (spi)
 volatile unsigned int *h2p_spi_mtch_ntwrk_addr	= NULL; // spi for matching network control (PCB v4 onwards)
+volatile unsigned int *h2p_spi_afe_relays_addr	= NULL; // spi for afe relays or preamp
 // void *h2p_i2c_ext_addr		= NULL; // gpio for i2c (used for relay control through io expander chip TCA9555PWR, and also rx gain selector)
 // void *h2p_dac_addr			= NULL; // gpio for dac (spi)
 
