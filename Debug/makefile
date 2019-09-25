@@ -23,19 +23,19 @@ endif
 # Add inputs and outputs from these tool invocations to the build variables 
 
 # All Target
-all: nmr_pcb2.0_hdl1.0_2018
+all: thesis_nmr
 
 # Tool invocations
-nmr_pcb2.0_hdl1.0_2018: $(OBJS) $(USER_OBJS)
+thesis_nmr: $(OBJS) $(USER_OBJS)
 	@echo 'Building target: $@'
 	@echo 'Invoking: GCC C Linker 4 [arm-linux-gnueabihf]'
-	arm-linux-gnueabihf-gcc  -o "nmr_pcb2.0_hdl1.0_2018" $(OBJS) $(USER_OBJS) $(LIBS)
+	arm-linux-gnueabihf-gcc  -o "thesis_nmr" $(OBJS) $(USER_OBJS) $(LIBS)
 	@echo 'Finished building target: $@'
 	@echo ' '
 
 # Other Targets
 clean:
-	-$(RM) $(EXECUTABLES) $(OBJS) $(C_DEPS) nmr_pcb2.0_hdl1.0_2018 
+	-$(RM) $(EXECUTABLES) $(OBJS) $(C_DEPS) thesis_nmr 
 	-@echo ' '
 
 .PHONY: all clean dependents

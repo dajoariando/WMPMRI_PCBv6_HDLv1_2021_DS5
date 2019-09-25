@@ -625,7 +625,7 @@ void print_warning_ad5722r() {
 
 }
 
-void print_warning_ad5724r() {
+void print_warning_ad5724r(uint8_t en_mesg) {
 	int dataread;
 
 	alt_write_word( (h2p_dac_addr + SPI_TXDATA_offst) , RD_DAC|PWR_CNT_REG );					// read the power control register
@@ -634,24 +634,61 @@ void print_warning_ad5724r() {
 	while (!(alt_read_word(h2p_dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ));			// wait for the spi command to finish
 	while (!(alt_read_word(h2p_dac_addr + SPI_STATUS_offst) & (1<<status_RRDY_bit) ));			// wait for the data to be ready
 	dataread = alt_read_word( h2p_dac_addr + SPI_RXDATA_offst );								// read the data
-	if (dataread & (1<<5) ) {
-		printf("\nDevice is in thermal shutdown (TSD) mode!\n");
+	if (dataread & (TSD) ) {
+		printf("\t\nDevice is in thermal shutdown (TSD) mode!\n");
 	}
-	if (dataread & (1<<7)) {
-		printf("DAC A overcurrent alert (OCa)!\n");
+	if (dataread & OC_A) {
+		printf("\tDAC A overcurrent alert (OCa)!\n");
 		usleep(10);
 	}
-	if (dataread & (1<<8)) {
-		printf("DAC B overcurrent alert (OCb)!\n");
+	if (dataread & OC_B) {
+		printf("\tDAC B overcurrent alert (OCb)!\n");
 		usleep(10);
 	}
-	if (dataread & (1<<9)) {
-		printf("DAC C overcurrent alert (OCc)!\n");
+	if (dataread & OC_C) {
+		printf("\tDAC C overcurrent alert (OCc)!\n");
 		usleep(10);
 	}
-	if (dataread & (1<<10)) {
-		printf("DAC D overcurrent alert (OCd)!\n");
+	if (dataread & OC_D) {
+		printf("\tDAC D overcurrent alert (OCd)!\n");
 		usleep(10);
+	}
+
+	if (en_mesg) {
+		if (dataread & DAC_A_PU) {
+			printf("\tDAC A is up");
+		}
+		else {
+			printf("\tDAC A is down");
+		}
+
+		if (dataread & DAC_B_PU) {
+			printf("\tDAC B is up");
+		}
+		else {
+			printf("\tDAC B is down");
+		}
+
+		if (dataread & DAC_C_PU) {
+			printf("\tDAC C is up");
+		}
+		else {
+			printf("\tDAC C is down");
+		}
+
+		if (dataread & DAC_D_PU) {
+			printf("\tDAC D is up");
+		}
+		else {
+			printf("\tDAC D is down");
+		}
+
+		if (dataread & REF_PU) {
+			printf("\tVREF is up");
+		}
+		else {
+			printf("\tVREF is down");
+		}
 	}
 
 }
@@ -757,7 +794,7 @@ void write_vbias_int(int16_t dac_v_bias) { //  easy method to write number to da
 
 }
 
-void wr_dac_ad5724r (volatile unsigned int * dac_addr, unsigned int dac_id, double volt) {
+void wr_dac_ad5724r (volatile unsigned int * dac_addr, unsigned int dac_id, double volt, uint8_t en_mesg) {
 	int16_t volt_int;
 
 	volt_int = (int16_t)((volt/5)*2048);
@@ -782,21 +819,27 @@ void wr_dac_ad5724r (volatile unsigned int * dac_addr, unsigned int dac_id, doub
 
 	// read the data just written to the dac
 
-	alt_write_word( (dac_addr + SPI_TXDATA_offst) , RD_DAC|DAC_REG|dac_id|0x00 );			// read DAC B value
+	alt_write_word( (dac_addr + SPI_TXDATA_offst) , RD_DAC|DAC_REG|dac_id|0x00 );			// read DAC value
 	while (!(alt_read_word(dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ));			// wait for the spi command to finish
 	alt_write_word( (dac_addr + SPI_TXDATA_offst) , WR_DAC|CNT_REG|NOP );					// no operation (NOP)
 	while (!(alt_read_word(dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ));			// wait for the spi command to finish
 	while (!(alt_read_word(dac_addr + SPI_STATUS_offst) & (1<<status_RRDY_bit) ));			// wait for read data to be ready
 
-	// in this version, the MISO is not connected to FPGA
+	// use this only if SDO pin is connected to the FPGA
 	int dataread;
-	dataread = alt_read_word( h2p_dac_addr + SPI_RXDATA_offst );								// read the data
-	printf("V_in: %4.3f V ",(double)volt_int/2048*5); 											// print the voltage desired
-	printf("(w:0x%04x)", (volt_int & 0x0FFF) ); 												// print the integer dac_varac value, truncate to 12-bit signed integer value
-	printf("(r:0x%04x)\n",dataread>>4);															// print the read value
-	// find out if warning has been detected
+	dataread = alt_read_word( h2p_dac_addr + SPI_RXDATA_offst );		// read the data at the dac register
+	if (en_mesg) {
+		printf("\tV_in: %4.3f V ",(double)volt_int/2048*5); 			// print the voltage desired
+		printf("\t(w:0x%04x)", (volt_int & 0x0FFF) ); 					// print the integer dac_varac value, truncate to 12-bit signed integer value
+		printf("\t(r:0x%04x)\n",dataread>>4);							// print the read value
+	}
 	usleep(100);
-	print_warning_ad5724r();
+	print_warning_ad5724r(en_mesg); // find out if warning has been detected
+
+	// recursion to make sure it works
+	if ( (volt_int & 0x0FFF) != (dataread>>4)) {
+		wr_dac_ad5724r (dac_addr, dac_id, volt, en_mesg);
+	}
 
 	/* write data register to DAC output ***LDAC is currently hardwired
 	ctrl_out = ctrl_out & ~DAC_LDAC_en;
@@ -2377,8 +2420,9 @@ int main(int argc, char * argv[]) {
 #endif
 #if (defined PCBv5_JUN2019)
     init_dac_ad5724r();			// power up the dac and init its operation
-	wr_dac_ad5724r (h2p_dac_addr, DAC_B, vbias); // vbias cannot exceed 1V, due to J310 transistor gate voltage
-	wr_dac_ad5724r (h2p_dac_addr, DAC_A, vvarac);
+    // wr_dac_ad5724 IS A NEW FUNCTION AND IS NOT VERIFIED!!!!!
+	wr_dac_ad5724r (h2p_dac_addr, DAC_B, vbias, DISABLE_MESSAGE); // vbias cannot exceed 1V, due to J310 transistor gate voltage
+	wr_dac_ad5724r (h2p_dac_addr, DAC_A, vvarac, DISABLE_MESSAGE);
 #endif
 
 
