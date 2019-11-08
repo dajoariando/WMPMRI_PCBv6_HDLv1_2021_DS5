@@ -1,3 +1,6 @@
+// if compilation gives error of "errno not found" or "EXIT_FAILURE not found", it is a bug.
+// comment #include <stdlib.h> and compile, it'll fail. And then comment it out again, it should work.
+
 // BOARD DEFINITION (ONLY ENABLE 1 AT A TIME)
 #define PCBv5_JUN2019
 // #define PCBv4_APR2019
@@ -1351,6 +1354,14 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 	alt_write_word( (h2p_echo_per_scan_addr) , echoes_per_scan );
 	alt_write_word( (h2p_adc_samples_per_echo_addr) , samples_per_echo );
 
+	// this is added because of the delay added in the state machine is minimum 2.25 ADC clock cycles for init_delay of 2 or less, and inherent 0.25 clock cycles for anything more than 2
+	if (cpmg_param[INIT_DELAY_ADC_OFFST]<=2) {
+			init_delay_inherent = 2.25 - cpmg_param[INIT_DELAY_ADC_OFFST];
+		}
+		else {
+			init_delay_inherent = 0.25;
+		}
+
 	if (enable_message) {
 		printf("CPMG Sequence Actual Parameter:\n");
 		printf("\tPulse 1\t\t\t: %7.3f us (%d)\n", (double)cpmg_param[PULSE1_OFFST]/nmr_fsm_clkfreq, cpmg_param[PULSE1_OFFST]);
@@ -2469,7 +2480,7 @@ int main(int argc, char * argv[]) {
 }
 */
 
-// I2C general control (rename the output to "i2c_gnrl")
+/* I2C general control (rename the output to "i2c_gnrl")
 int main(int argc, char * argv[]) { // argv cannot contain more than so many characters
     // printf("General control with I2C\n");
 
@@ -2493,7 +2504,7 @@ int main(int argc, char * argv[]) { // argv cannot contain more than so many cha
     close_physical_memory_device();
     return 0;
 }
-//
+*/
 
 /* Wobble (rename the output to "wobble")
 int main(int argc, char * argv[]) { // [ADD DYNAMIC MALLOC LIKE IN CPMG_ITERATE BEFORE EDITING ANYTHING!!!]
@@ -2691,3 +2702,62 @@ int main(int argc, char * argv[]) {[ADD DYNAMIC MALLOC LIKE IN CPMG_ITERATE BEFO
     return 0;
 }
 */
+
+// parameter calculator (calculate the real delay and timing based on the verilog
+int main(int argc, char * argv[]) {
+
+	double b1Freq = atof(argv[1]);			// nmr RF cpmg frequency (in MHz)
+	double echoShift = atof(argv[2]);		// shift the 180 deg data capture relative to the middle of the 180 delay span. This is to compensate shifting because of signal path delay / other factors. This parameter could be negative as well
+	double p90LengthGiven = atof(argv[3]);	// the length of cpmg 90 deg pulse
+	double p180LengthGiven = atof(argv[4]);	// the length of cpmg 180 deg pulse
+	double echoTimeGiven = atof(argv[5]);	// the length between one echo to the other (equal to pulse2_us + delay2_us)
+	unsigned int nrPnts = atoi(argv[6]);	// the total adc samples captured in one echo
+
+	unsigned int cpmg_param [5];
+	double adc_ltc1746_freq = b1Freq*4;
+	double nmr_fsm_clkfreq = b1Freq*16;
+
+	cpmg_param_calculator_ltc1746(
+		cpmg_param,
+		nmr_fsm_clkfreq,
+		b1Freq,
+		adc_ltc1746_freq,
+		echoShift,
+		p90LengthGiven,
+		p180LengthGiven,
+		echoTimeGiven,
+		nrPnts
+	);
+
+	unsigned int pulse1_int = *(cpmg_param+PULSE1_OFFST);
+	unsigned int delay1_int = *(cpmg_param+DELAY1_OFFST);
+	unsigned int pulse2_int = *(cpmg_param+PULSE2_OFFST);
+	unsigned int delay2_int = *(cpmg_param+DELAY2_OFFST);
+	unsigned int init_adc_delay_int = *(cpmg_param+INIT_DELAY_ADC_OFFST);
+
+	double p90_run = (double)pulse1_int/nmr_fsm_clkfreq;
+	double d90_run = (double)delay1_int/nmr_fsm_clkfreq;
+	double p180_run = (double)pulse2_int/nmr_fsm_clkfreq;
+	double d180_run = (double)delay2_int/nmr_fsm_clkfreq;
+	double adc_delay_run; // the delay added in the state machine is minimum 2.25 ADC clock cycles for init_delay of 2 or less, and inherent 0.25 clock cycles for anything more than 2
+	if (init_adc_delay_int<=2) {
+		adc_delay_run = 2.25/adc_ltc1746_freq;
+	}
+	else {
+		adc_delay_run = (((double)init_adc_delay_int)+0.25)/adc_ltc1746_freq;
+	}
+
+	double acq_wdw_run = (double)nrPnts/adc_ltc1746_freq;
+	double acq_wdw_tail = d180_run - adc_delay_run - acq_wdw_run;
+
+	printf("p90 Pulse Run = %f\n",p90_run);
+	printf("d90 Delay Run = %f\n",d90_run);
+	printf("p180 Pulse Run = %f\n",p180_run);
+	printf("d180 Delay Run = %f\n",d180_run);
+	printf("\tADC Delay at d180 = %f\n",adc_delay_run);
+	printf("\tAcquisition window = %f\n",acq_wdw_run);
+	printf("\tDelay after acq. window = %f\n",acq_wdw_tail);
+
+	return 0;
+
+}
