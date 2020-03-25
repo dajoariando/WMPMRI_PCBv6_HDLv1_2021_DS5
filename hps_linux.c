@@ -2,9 +2,7 @@
 // comment #include <stdlib.h> and compile, it'll fail. And then comment it out again, it should work.
 
 // BOARD DEFINITION (ONLY ENABLE 1 AT A TIME)
-#define PCBv5_JUN2019
-// #define PCBv4_APR2019
-// #define PCBv2_FEB2018
+#define PCBv5_JUN2019 // not being used.
 
 #include <assert.h>
 #include <errno.h>
@@ -17,6 +15,7 @@
 #include <unistd.h>
 #include <time.h>
 #include <math.h>
+#include <sys/wait.h>
 
 #include <alt_generalpurpose_io.h>
 #include <hwlib.h>
@@ -30,12 +29,8 @@
 #include "functions/tca9555_driver.h"
 #include "functions/avalon_spi.h"
 
-#ifdef PCBv5_JUN2019
-#include "functions/dac_ad5724r_driver.h"
-#else
-#include "functions/dac_ad5722r_driver.h" // for PCBv2_FEB2018 and PCBv4_APR2019
-#endif
 
+#include "functions/dac_ad5724r_driver.h"
 #include "functions/general.h"
 #include "functions/reconfig_functions.h"
 #include "functions/pll_param_generator.h"
@@ -134,16 +129,7 @@ void mmap_fpga_peripherals() {
 	h2p_init_adc_delay_addr			= h2f_lw_axi_master + NMR_PARAMETERS_INIT_DELAY_BASE;
 	h2p_rx_delay_addr				= h2f_lw_axi_master + NMR_PARAMETERS_RX_DELAY_BASE;
 
-#ifdef PCBv4_APR2019
-	h2p_dac_addr					= h2f_lw_axi_master + DAC_PREAMP_BASE;
-#endif
-#ifdef PCBv2_FEB2018
-	h2p_dac_addr					= h2f_lw_axi_master + DAC_PREAMP_BASE;
-#endif
-
-#ifdef PCBv5_JUN2019
 	h2p_dac_addr					= h2f_lw_axi_master + DAC_GRAD_BASE; // MAKE SURE TO USE THE CORRECT DAC ADDRESS. AT THIS POINT, THE GRAD DAC IS USED CAUSE THERE's DESIGN ERROR IN PCB V5.0
-#endif
 
 	h2p_spi_mtch_ntwrk_addr			= h2f_lw_axi_master + SPI_MTCH_NTWRK_BASE;
 	h2p_spi_afe_relays_addr			= h2f_lw_axi_master + SPI_AFE_RELAYS_BASE;
@@ -250,124 +236,6 @@ void create_measurement_folder(char * foldertype) {
 
 void write_relay_cnt (uint16_t c_shunt, uint16_t c_series, uint8_t en_mesg) {
 
-#ifdef PCBv2_FEB2018 // write matching network via i2c
-	uint8_t i2c_addr_relay = 0x40;	// i2c address for TCA9555PWR used by the relay
-	i2c_addr_relay >>= 1;			// shift by one because the LSB address is not used as an address (controlled by the Altera I2C IP)
-
-	// reorder port2 data for CR2 because the schematic switched the order (LSB was switched to MSB, etc)
-	uint8_t c_series_reorder = 0;
-	c_series_reorder =
-		((c_series & 0b00000001)<<7) |
-		((c_series & 0b00000010)<<5) |
-		((c_series & 0b00000100)<<3) |
-		((c_series & 0b00001000)<<1) |
-		((c_series & 0b00010000)>>1) |
-		((c_series & 0b00100000)>>3) |
-		((c_series & 0b01000000)>>5) |
-		((c_series & 0b10000000)>>7);
-
-	// reorder port1 data for CR1 because the schematic switched the order (LSB was switched to MSB, etc)
-	uint8_t c_shunt_reorder = 0;
-	c_shunt_reorder =
-		((c_shunt & 0b00000001)<<7) |
-		((c_shunt & 0b00000010)<<5) |
-		((c_shunt & 0b00000100)<<3) |
-		((c_shunt & 0b00001000)<<1) |
-		((c_shunt & 0b00010000)>>1) |
-		((c_shunt & 0b00100000)>>3) |
-		((c_shunt & 0b01000000)>>5) |
-		((c_shunt & 0b10000000)>>7);
-
-
-
-	alt_write_word( (h2p_i2c_ext_addr+ISR_OFST) , RX_OVER_MSK|ARBLOST_DET_MSK|NACK_DET_MSK ); // RESET THE I2C FROM PREVIOUS ERRORS
-
-	alt_write_word( (h2p_i2c_ext_addr+CTRL_OFST), 1<<CORE_EN_SHFT); // enable i2c core
-
-	alt_write_word( (h2p_i2c_ext_addr+SCL_LOW_OFST), 250); // set the SCL_LOW_OFST to 250 for 100 kHz with 50 MHz clock
-	alt_write_word( (h2p_i2c_ext_addr+SCL_HIGH_OFST), 250); // set the SCL_HIGH_OFST to 250 for 100 kHz with 50 MHz clock
-	alt_write_word( (h2p_i2c_ext_addr+SDA_HOLD_OFST), 1); // set the SDA_HOLD_OFST to 1 as the default (datasheet requires min 0 ns hold time)
-    
-	alt_write_word( (h2p_i2c_ext_addr+TFR_CMD_OFST) , (1<<STA_SHFT) | (0<<STO_SHFT) | (i2c_addr_relay<<AD_SHFT) | (WR_I2C<<RW_D_SHFT) );
-	alt_write_word( (h2p_i2c_ext_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (CNT_REG_CONF_PORT0 & I2C_DATA_MSK) );
-	alt_write_word( (h2p_i2c_ext_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (1<<STO_SHFT) | ((0x00) & I2C_DATA_MSK) );				// set port 0 as output
-                                                      
-	alt_write_word( (h2p_i2c_ext_addr+TFR_CMD_OFST) , (1<<STA_SHFT) | (0<<STO_SHFT) | (i2c_addr_relay<<AD_SHFT) | (WR_I2C<<RW_D_SHFT) );
-	alt_write_word( (h2p_i2c_ext_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (CNT_REG_CONF_PORT1 & I2C_DATA_MSK) );
-	alt_write_word( (h2p_i2c_ext_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (1<<STO_SHFT) | ((0x00) & I2C_DATA_MSK) );					// set port 1 as output
-                                                      
-	alt_write_word( (h2p_i2c_ext_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (i2c_addr_relay<<AD_SHFT) | (WR_I2C<<RW_D_SHFT) );
-	alt_write_word( (h2p_i2c_ext_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (CNT_REG_OUT_PORT0 & I2C_DATA_MSK) );
-	alt_write_word( (h2p_i2c_ext_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (1<<STO_SHFT) | ((c_shunt_reorder) & I2C_DATA_MSK) );				// set output on port 0
-                                                      
-	alt_write_word( (h2p_i2c_ext_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (i2c_addr_relay<<AD_SHFT) | (WR_I2C<<RW_D_SHFT) );
-	alt_write_word( (h2p_i2c_ext_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (CNT_REG_OUT_PORT1 & I2C_DATA_MSK) );
-	alt_write_word( (h2p_i2c_ext_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (1<<STO_SHFT) | ((c_series_reorder) & I2C_DATA_MSK) );	// set output on port 1
-
-	if (en_mesg) {
-		printf("Status for i2c transactions:\n");
-	}
-
-	uint32_t isr_status;
-	isr_status = alt_read_word( h2p_i2c_ext_addr+ISR_OFST);
-	if (isr_status & RX_OVER_MSK) {
-		printf("\t[ERROR] Receive data FIFO has overrun condition, new data is lost\n");
-		alt_write_word( (h2p_i2c_ext_addr+ISR_OFST) , RX_OVER_MSK ); // clears receive overrun
-	}
-	else {
-		if (en_mesg) printf("\t[NORMAL] No receive overrun\n");
-	}
-	if (isr_status & ARBLOST_DET_MSK) {
-		printf("\t[ERROR] Core has lost bus arbitration\n");
-		alt_write_word( (h2p_i2c_ext_addr+ISR_OFST) , ARBLOST_DET_MSK ); // clears receive overrun
-	}
-	else {
-		if (en_mesg) printf("\t[NORMAL] No arbitration lost\n");
-	}
-	if (isr_status & NACK_DET_MSK) {
-		printf("\t[ERROR] NACK is received by the core\n");
-		alt_write_word( (h2p_i2c_ext_addr+ISR_OFST) , NACK_DET_MSK ); // clears receive overrun
-	}
-	else {
-		if (en_mesg) printf("\t[NORMAL] ACK has been received\n");
-	}
-	if (isr_status & RX_READY_MSK) {
-		printf("\t[WARNING] RX_DATA_FIFO level is equal or more than its threshold\n");
-	}
-	else {
-		if (en_mesg) printf("\t[NORMAL] RX_DATA_FIFO level is less than its threshold\n");
-	}
-	if (isr_status & TX_READY_MSK) {
-		printf("\t[WARNING] TFR_CMD level is equal or more than its threshold\n");
-	}
-	else {
-		if (en_mesg) printf("\t[NORMAL] TFR_CMD level is less than its threshold\n");
-	}
-
-	alt_write_word( (h2p_i2c_ext_addr+CTRL_OFST), 0<<CORE_EN_SHFT); // disable i2c core
-
-	usleep(10000);
-#endif /* PCBv2_FEB2018 */
-
-#ifdef PCBv4_APR2019 // write matching network via spi
-
-	// data is transfered LSB first, but the data needs to be sent in following sequence:
-	// of cseries_lsb, cshunt_lsb+cseries_msb, cshunt_msb
-	uint8_t cser_lsb, cshunt_lsb_cser_msb, cshunt_msb;
-
-	cser_lsb 			= (uint8_t)(c_series & 0xFF);
-	cshunt_lsb_cser_msb	= (uint8_t)( ((c_shunt & 0x0F)<<4) | ((c_series>>8) & 0x0F) );
-	cshunt_msb			= (uint8_t)( (c_shunt>>4) & 0xFF );
-
-	alt_write_word( (h2p_spi_mtch_ntwrk_addr + SPI_TXDATA_offst) , ((uint32_t) cshunt_msb)<<16 | ((uint32_t) cshunt_lsb_cser_msb)<<8 | cser_lsb); // set the matching network
-	while (!(alt_read_word(h2p_spi_mtch_ntwrk_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) )); // wait for the spi command to finish
-	if (en_mesg) {
-		printf("\trelay control via spi (PCB v4 only!)...\n");
-	}
-#endif /* PCBv4_APR2019 */
-
-#ifdef PCBv5_JUN2019 // write matching network via spi
-
 	// data is transfered LSB first, but the data needs to be sent in following sequence:
 	// of cseries_lsb, cshunt_lsb+cseries_msb, cshunt_msb
 	uint8_t cser_lsb, cshunt_lsb_cser_msb, cshunt_msb;
@@ -381,11 +249,9 @@ void write_relay_cnt (uint16_t c_shunt, uint16_t c_series, uint8_t en_mesg) {
 	if (en_mesg) {
 		printf("\trelay control via spi (PCB v5 only!)...\n");
 	}
-#endif /* PCBv5_JUN2019 */
 
 }
 
-#ifdef PCBv5_JUN2019 // write matching network via spi
 void write_pamprelay_cnt (uint16_t val, uint8_t en_mesg) {
 
 	alt_write_word( (h2p_spi_afe_relays_addr + SPI_TXDATA_offst) , (uint32_t) val);
@@ -395,7 +261,6 @@ void write_pamprelay_cnt (uint16_t val, uint8_t en_mesg) {
 	}
 
 }
-#endif /* PCBv5_JUN2019 */
 
 void check_i2c_isr_stat (volatile unsigned long * i2c_addr, uint8_t en_mesg) {
 	uint32_t isr_status;
@@ -437,7 +302,6 @@ void check_i2c_isr_stat (volatile unsigned long * i2c_addr, uint8_t en_mesg) {
 	if (en_mesg) printf("\t --- \n");
 }
 
-#ifdef PCBv5_JUN2019 // write control signal via spi
 void write_i2c_int_cnt (uint32_t en, uint32_t addr_msk0, uint32_t addr_msk1, uint8_t en_mesg) {
 
 
@@ -535,7 +399,6 @@ void write_i2c_int_cnt (uint32_t en, uint32_t addr_msk0, uint32_t addr_msk1, uin
 	usleep(10000); // delay to finish i2c operation
 
 }
-#endif /* PCBv5_JUN2019 */
 
 void sweep_matching_network() {
 	uint8_t c_sw = 0;
@@ -552,7 +415,6 @@ void sweep_matching_network() {
 	}
 };
 
-#ifdef PCBv5_JUN2019
 void init_dac_ad5724r () {
 	// read the current ctrl_out
 	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
@@ -575,35 +437,7 @@ void init_dac_ad5724r () {
 	usleep(1);
 
 }
-#else // for PCB v4.0 and below
-void init_dac_ad5722r () {
-	// read the current ctrl_out
-	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
 
-	// setup the control lines for dac clear and dac ldac
-	ctrl_out = ctrl_out | DAC_LDAC_en | DAC_CLR;
-	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out ) ;
-	usleep(10);
-
-	alt_write_word( (h2p_dac_addr + SPI_TXDATA_offst) , WR_DAC|PWR_CNT_REG|DAC_A_PU|DAC_B_PU|REF_PU );	// power up reference voltage, dac A, and dac B
-	while (!(alt_read_word(h2p_dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ));					// wait for the spi command to finish
-	alt_write_word( (h2p_dac_addr + SPI_TXDATA_offst) , WR_DAC|OUT_RANGE_SEL_REG|DAC_AB|PN50 );			// set range voltage to +/- 5.0V
-	while (!(alt_read_word(h2p_dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ));					// wait for the spi command to finish
-	alt_write_word( (h2p_dac_addr + SPI_TXDATA_offst) , WR_DAC|CNT_REG|Other_opt|Clamp_en);				// enable the current limit clamp
-	while (!(alt_read_word(h2p_dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ));					// wait for the spi command to finish
-
-	// clear the DAC output
-	ctrl_out = ctrl_out & (~DAC_CLR) ;
-	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out ) ;
-	usleep(1);
-
-	// release the clear pin
-	ctrl_out = ctrl_out | DAC_CLR;
-	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out ) ;
-	usleep(1);
-
-}
-#endif
 
 void print_warning_ad5722r() {
 	int dataread;
@@ -720,80 +554,7 @@ void write_vbias (double vbias) {
 
 void write_vbias_int(int16_t dac_v_bias) { //  easy method to write number to dac
 
-#if (defined PCBv4_APR2019) || (defined PCBv2_FEB2018) // AD5722R is the DAC for PCB prior to v5
-	// read the current ctrl_out
-	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
-
-	/* OLD DRIVER: DON'T DELETE
-	// setup the control lines for dac clear and dac ldac
-	ctrl_out = (ctrl_out & (~DAC_LDAC_en)) | DAC_CLR;
-	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out ) ;
-
-	alt_write_word( (h2p_dac_addr + SPI_TXDATA_offst) , WR_DAC|PWR_CNT_REG|DAC_A_PU|DAC_B_PU|REF_PU );	// power up reference voltage, dac A, and dac B
-	while (!(alt_read_word(h2p_dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ));				// wait for the spi command to finish
-	alt_write_word( (h2p_dac_addr + SPI_TXDATA_offst) , WR_DAC|OUT_RANGE_SEL_REG|DAC_AB|PN50 );			// set range voltage to +/- 5.0V
-	while (!(alt_read_word(h2p_dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ));				// wait for the spi command to finish
-
-	alt_write_word( (h2p_dac_addr + SPI_TXDATA_offst) , WR_DAC|DAC_REG|DAC_B|((dac_v_bias & 0x0FFF)<<4) );			// set the dac B voltage
-	while (!(alt_read_word(h2p_dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ));				// wait for the spi command to finish
-	*/
-
-	/*
-	// write data register to DAC output
-	ctrl_out = ctrl_out & ~DAC_LDAC_en;
-	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out ) ;
-	usleep(50);
-	*/
-
-	// NEW CODE
-	alt_write_word( (h2p_dac_addr + SPI_TXDATA_offst) , WR_DAC|DAC_REG|DAC_B|((dac_v_bias & 0x0FFF)<<4) );			// set the dac B voltage
-	while (!(alt_read_word(h2p_dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ));
-
-	// CODE BELOW IS WRITTEN BECAUSE SOMETIMES THE DAC DOESN'T WORK REALLY WELL
-	// DATA WRITTEN IS NOT THE SAME AS DATA READ FROM THE ADC
-	// THEREFORE THE DATA IS READ AND VERIFIED BEFORE IT IS USED AS AN OUTPUT
-
-	// read the data just written to the dac
-
-	alt_write_word( (h2p_dac_addr + SPI_TXDATA_offst) , RD_DAC|DAC_REG|DAC_B|0x00 );			// read DAC B value
-	while (!(alt_read_word(h2p_dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ));			// wait for the spi command to finish
-	alt_write_word( (h2p_dac_addr + SPI_TXDATA_offst) , WR_DAC|CNT_REG|NOP );					// no operation (NOP)
-	while (!(alt_read_word(h2p_dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ));			// wait for the spi command to finish
-	while (!(alt_read_word(h2p_dac_addr + SPI_STATUS_offst) & (1<<status_RRDY_bit) ));			// wait for read data to be ready
-
-	/* in this version, the MISO is not connected to FPGA
-	int dataread;
-	dataread = alt_read_word( h2p_dac_addr + SPI_RXDATA_offst );								// read the data
-	printf("vbias: %4.3f V ",(double)dac_v_bias/2048*5); 										// print the voltage desired
-	printf("(w:0x%04x)", (dac_v_bias & 0x0FFF) ); 												// print the integer dac_varac value, truncate to 12-bit signed integer value
-	printf("(r:0x%04x)\n",dataread>>4);															// print the read value
-	// find out if warning has been detected
-	usleep(1);
-	print_warning_ad5722r();
-	// if the data written to the dac is different than data read back, rewrite the dac
-	// recursively until the data is right
-	if ( (dac_v_bias&0x0FFF) != (dataread>>4)) {
-		write_vbias_int (dac_v_bias);
-	}
-	*/
-
-	// write data register to DAC output
-	ctrl_out = ctrl_out & ~DAC_LDAC_en;
-	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out ) ;
-	usleep(50);
-
-	// disable LDAC one more time
-	ctrl_out = ctrl_out | DAC_LDAC_en;
-	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out ) ;
-	usleep(50);
-    init_dac_ad5722r();			// power up the dac and init its operation
-#endif
-
-#if (defined PCBv5_JUN2019) // MCP4728 is the DAC starting from PCBv5
-
-
-
-#endif
+// MCP4728 is the DAC starting from PCBv5, which is not bipolar and ended up not being used
 
 }
 
@@ -1001,49 +762,28 @@ void sweep_rx_gain () {
 
 }
 
-/*
-void fifo_to_sdram_dma_trf (uint32_t transfer_length) {
-	alt_write_word(h2p_dma_addr+DMA_CONTROL_OFST,	DMA_CTRL_SWRST_MSK); 	// write twice to do software reset
-	alt_write_word(h2p_dma_addr+DMA_CONTROL_OFST,	DMA_CTRL_SWRST_MSK); 	// software resetted
-	alt_write_word(h2p_dma_addr+DMA_STATUS_OFST,	0x0); 					// clear the DONE bit
-	alt_write_word(h2p_dma_addr+DMA_READADDR_OFST,	ADC_FIFO_MEM_OUT_BASE); // set DMA read address
-	alt_write_word(h2p_dma_addr+DMA_WRITEADDR_OFST,	SDRAM_BASE);			// set DMA write address
-	alt_write_word(h2p_dma_addr+DMA_LENGTH_OFST,	transfer_length*4);		// set transfer length (in byte, so multiply by 4 to get word-addressing)
-	alt_write_word(h2p_dma_addr+DMA_CONTROL_OFST,	(DMA_CTRL_WORD_MSK|DMA_CTRL_LEEN_MSK|DMA_CTRL_RCON_MSK)); // set settings for transfer
-	alt_write_word(h2p_dma_addr+DMA_CONTROL_OFST,	(DMA_CTRL_WORD_MSK|DMA_CTRL_LEEN_MSK|DMA_CTRL_RCON_MSK|DMA_CTRL_GO_MSK)); // set settings & also enable transfer
-}
-*/
-void fifo_to_sdram_dma_trf (volatile unsigned int * dma_addr, uint32_t rd_addr, uint32_t wr_addr, uint32_t transfer_length) {
-	alt_write_word(dma_addr+DMA_CONTROL_OFST,	DMA_CTRL_SWRST_MSK); 	// write twice to do software reset
-	alt_write_word(dma_addr+DMA_CONTROL_OFST,	DMA_CTRL_SWRST_MSK); 	// software resetted
-	alt_write_word(dma_addr+DMA_STATUS_OFST,	0x0); 					// clear the DONE bit
-	alt_write_word(dma_addr+DMA_READADDR_OFST,	rd_addr); 				// set DMA read address
-	alt_write_word(dma_addr+DMA_WRITEADDR_OFST,	wr_addr);				// set DMA write address
-	alt_write_word(dma_addr+DMA_LENGTH_OFST,	transfer_length*4);		// set transfer length (in byte, so multiply by 4 to get word-addressing)
-	alt_write_word(dma_addr+DMA_CONTROL_OFST,	(DMA_CTRL_WORD_MSK|DMA_CTRL_LEEN_MSK|DMA_CTRL_RCON_MSK)); // set settings for transfer
-	alt_write_word(dma_addr+DMA_CONTROL_OFST,	(DMA_CTRL_WORD_MSK|DMA_CTRL_LEEN_MSK|DMA_CTRL_RCON_MSK|DMA_CTRL_GO_MSK)); // set settings & also enable transfer
-}
-
-void reset_dma(volatile unsigned int * dma_addr) {
-	alt_write_word(dma_addr+DMA_CONTROL_OFST,	DMA_CTRL_SWRST_MSK); 	// write twice to do software reset
-	alt_write_word(dma_addr+DMA_CONTROL_OFST,	DMA_CTRL_SWRST_MSK); 	// software resetted
-}
-
 void check_dma (volatile unsigned int * dma_addr, uint8_t en_mesg) {
 	// this function waits until the dma addressed finishes its operation
 	unsigned int dma_status;
 	do {
 		dma_status = alt_read_word(dma_addr+DMA_STATUS_OFST);
 		if (en_mesg) {
-			printf("\tstatus reg: 0x%x\n",dma_status);
+			printf("\tDMA Status reg: 0x%x\n",dma_status);
 			if (!(dma_status & DMA_STAT_DONE_MSK)) {
 				printf("\tDMA transaction is not done.\n");
 			}
 			if (dma_status & DMA_STAT_BUSY_MSK) {
 				printf("\tDMA is busy.\n");
+
+				// print length register
+				printf("\t--> DMA length register: %d\n", alt_read_word(dma_addr+DMA_LENGTH_OFST));		// set transfer length (in byte, so multiply by 4 to get word-addressing));
+
+				// wait time in case of DMA busy. Only valid under ENABLE_MESSAGE because the loop needs to be fast otherwise
+				unsigned int wait_time_ms = 500;
+				usleep(wait_time_ms*1000); // wait time to prevent overloading the DMA bus arbitration request only if the dma is busy
+				printf("\t---> waiting for %d ms ...\n", wait_time_ms);
 			}
 		}
-		usleep(10); // wait time to prevent overloading the DMA bus arbitration request
 	}
 	while (!(dma_status & DMA_STAT_DONE_MSK) || (dma_status & DMA_STAT_BUSY_MSK)); // keep in the loop when the 'DONE' bit is '0' and 'BUSY' bit is '1'
 	if (en_mesg) {
@@ -1059,11 +799,69 @@ void check_dma (volatile unsigned int * dma_addr, uint8_t en_mesg) {
 	}
 }
 
+/*
+void fifo_to_sdram_dma_trf (uint32_t transfer_length) {
+	alt_write_word(h2p_dma_addr+DMA_CONTROL_OFST,	DMA_CTRL_SWRST_MSK); 	// write twice to do software reset
+	alt_write_word(h2p_dma_addr+DMA_CONTROL_OFST,	DMA_CTRL_SWRST_MSK); 	// software resetted
+	alt_write_word(h2p_dma_addr+DMA_STATUS_OFST,	0x0); 					// clear the DONE bit
+	alt_write_word(h2p_dma_addr+DMA_READADDR_OFST,	ADC_FIFO_MEM_OUT_BASE); // set DMA read address
+	alt_write_word(h2p_dma_addr+DMA_WRITEADDR_OFST,	SDRAM_BASE);			// set DMA write address
+	alt_write_word(h2p_dma_addr+DMA_LENGTH_OFST,	transfer_length*4);		// set transfer length (in byte, so multiply by 4 to get word-addressing)
+	alt_write_word(h2p_dma_addr+DMA_CONTROL_OFST,	(DMA_CTRL_WORD_MSK|DMA_CTRL_LEEN_MSK|DMA_CTRL_RCON_MSK)); // set settings for transfer
+	alt_write_word(h2p_dma_addr+DMA_CONTROL_OFST,	(DMA_CTRL_WORD_MSK|DMA_CTRL_LEEN_MSK|DMA_CTRL_RCON_MSK|DMA_CTRL_GO_MSK)); // set settings & also enable transfer
+}
+*/
+void fifo_to_sdram_dma_trf (volatile unsigned int * dma_addr, uint32_t rd_addr, uint32_t wr_addr, uint32_t transfer_length) {
+	// the original conventional code
+	alt_write_word(dma_addr+DMA_CONTROL_OFST,	DMA_CTRL_SWRST_MSK); 	// write twice to do software reset
+	alt_write_word(dma_addr+DMA_CONTROL_OFST,	DMA_CTRL_SWRST_MSK); 	// software resetted
+	alt_write_word(dma_addr+DMA_STATUS_OFST,	0x0); 					// clear the DONE bit
+	alt_write_word(dma_addr+DMA_READADDR_OFST,	rd_addr); 				// set DMA read address
+	alt_write_word(dma_addr+DMA_WRITEADDR_OFST,	wr_addr);				// set DMA write address
+	alt_write_word(dma_addr+DMA_LENGTH_OFST,	transfer_length*4);		// set transfer length (in byte, so multiply by 4 to get word-addressing)
+	alt_write_word(dma_addr+DMA_CONTROL_OFST,	(DMA_CTRL_WORD_MSK|DMA_CTRL_LEEN_MSK|DMA_CTRL_RCON_MSK)); // set settings for transfer
+	alt_write_word(dma_addr+DMA_CONTROL_OFST,	(DMA_CTRL_WORD_MSK|DMA_CTRL_LEEN_MSK|DMA_CTRL_RCON_MSK|DMA_CTRL_GO_MSK)); // set settings & also enable transfer
+	//
+
+	/* burst method (tested. Doesn't really work with large data due to slow reinitialization. Generally burst mode only works and faster when the amount of data is less than max burst size. Otherwise It doesn't work)
+	uint32_t burst_size = 1024; // the max burst size is set in QSYS in DMA section
+	uint32_t transfer_remain = transfer_length*4; // multiplied by 4 to get word-addressing
+	alt_write_word(dma_addr+DMA_CONTROL_OFST,	DMA_CTRL_SWRST_MSK); 	// write twice to do software reset
+	alt_write_word(dma_addr+DMA_CONTROL_OFST,	DMA_CTRL_SWRST_MSK); 	// software resetted
+	alt_write_word(dma_addr+DMA_READADDR_OFST,	rd_addr); 				// set DMA read address (fifo)
+	uint32_t iaddr = 0;
+	while (transfer_remain>burst_size) { // transfer with burst_size when remaining data is larger than burst_size
+		alt_write_word(dma_addr+DMA_WRITEADDR_OFST,	wr_addr + iaddr);		// set DMA write address
+		alt_write_word(dma_addr+DMA_LENGTH_OFST, burst_size);				// set transfer length (in byte, so multiply by 4 to get word-addressing)
+		alt_write_word(dma_addr+DMA_CONTROL_OFST,	(DMA_CTRL_WORD_MSK|DMA_CTRL_LEEN_MSK|DMA_CTRL_RCON_MSK)); // set settings for transfer
+		alt_write_word(dma_addr+DMA_CONTROL_OFST,	(DMA_CTRL_WORD_MSK|DMA_CTRL_LEEN_MSK|DMA_CTRL_RCON_MSK|DMA_CTRL_GO_MSK)); // set settings & also enable transfer
+		transfer_remain -= burst_size;
+		iaddr += (burst_size/4);
+		check_dma(dma_addr, DISABLE_MESSAGE); // wait for the dma operation to complete
+	}
+	if (transfer_remain>0) { // transfer with the remaining data
+		alt_write_word(dma_addr+DMA_WRITEADDR_OFST,	wr_addr + iaddr);		// set DMA write address
+		alt_write_word(dma_addr+DMA_LENGTH_OFST, transfer_remain);			// set transfer length (in byte, so multiply by 4 to get word-addressing)
+		alt_write_word(dma_addr+DMA_CONTROL_OFST,	(DMA_CTRL_WORD_MSK|DMA_CTRL_LEEN_MSK|DMA_CTRL_RCON_MSK)); // set settings for transfer
+		alt_write_word(dma_addr+DMA_CONTROL_OFST,	(DMA_CTRL_WORD_MSK|DMA_CTRL_LEEN_MSK|DMA_CTRL_RCON_MSK|DMA_CTRL_GO_MSK)); // set settings & also enable transfer
+		check_dma(dma_addr, DISABLE_MESSAGE); // wait for the dma operation to complete
+	}
+	*/
+
+}
+
+void reset_dma(volatile unsigned int * dma_addr) {
+	alt_write_word(dma_addr+DMA_CONTROL_OFST,	DMA_CTRL_SWRST_MSK); 	// write twice to do software reset
+	alt_write_word(dma_addr+DMA_CONTROL_OFST,	DMA_CTRL_SWRST_MSK); 	// software resetted
+}
+
+
+
 void datawrite_with_dma (uint32_t transfer_length, uint8_t en_mesg) {
 	int i_sd = 0;
 
 	fifo_to_sdram_dma_trf (h2p_dma_addr, ADC_FIFO_MEM_OUT_BASE, SDRAM_BASE, transfer_length);
-	check_dma(h2p_dma_addr, DISABLE_MESSAGE); // wait for the dma operation to complete
+	check_dma(h2p_dma_addr, en_mesg); // wait for the dma operation to complete
 
 	unsigned int fifo_data_read;
 	for (i_sd=0; i_sd < transfer_length; i_sd++) {
@@ -1321,7 +1119,7 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 	uint8_t process_raw_data = 1; // obtain raw data directly (the original implementation, without FPGA downconversion)
 	uint8_t process_dconv_data = 0; // obtain data from downconversion fifo (requires implementation in FPGA as well)
 	uint8_t store_to_sdram_only = 0; // do not write the data from fifo to text file (external reading mechanism should be implemented)
-	uint8_t store_and_read_from_sdram = 0; // store data to sdram (increasing memory limit). Or else the program reads data directly from the fifo
+	uint8_t store_and_read_from_sdram = 1; // store data to sdram (increasing memory limit). Or else the program reads data directly from the fifo
 	uint8_t write_indv_data_to_file = 0; // write the individual scan data to a text file
 
 	usleep(scan_spacing_us);
@@ -1345,6 +1143,27 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 		echo_spacing_us,
 		samples_per_echo
 	);
+
+	/* start DMA with fork
+	int status;
+	switch (fork()) {
+		case -1:
+			// An error has occurred
+			printf("Fork Error");
+			break;
+		case 0:
+			// This code is executed by the first parent
+			printf("First child process is born, my pid is %d\n", getpid());
+			fifo_to_sdram_dma_trf (h2p_dma_addr, ADC_FIFO_MEM_OUT_BASE, SDRAM_BASE, samples_per_echo*echoes_per_scan/2);
+			check_dma(h2p_dma_addr, ENABLE_MESSAGE);
+			exit(0);
+			break;
+		default:
+			// This code is executed by the parent process
+			printf("Parent process is born, my pid is %d\n", getpid());
+			break;
+	}
+	*/
 
 	alt_write_word( (h2p_pulse1_addr) , cpmg_param[PULSE1_OFFST] );
 	alt_write_word( (h2p_delay1_addr) , cpmg_param[DELAY1_OFFST] );
@@ -1414,6 +1233,8 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 	// usleep(10);
 
 
+
+
 	// reset buffer
 	ctrl_out |= (0x01<<ADC_FIFO_RST_ofst);
 	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out );
@@ -1436,6 +1257,9 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 	// Set_DPS (h2p_nmr_pll_addr, 2, 180, DISABLE_MESSAGE);
 	// Set_DPS (h2p_nmr_pll_addr, 3, 270, DISABLE_MESSAGE);
 	// usleep(scan_spacing_us);
+
+	// wait for the child process
+	// wait(&status);
 
 	if (store_and_read_from_sdram) { // set sdram transfer (ATTEMPT TO INTERLEAVE BUT STILL NOT WORKING FOR BOTH CHANNEL. ONLY FOR ONE. NOTE THAT DATA TRANSFER IS REDUCED FOR DCONVQ to only samples_per_echo, instead of data_len)
 		unsigned int data_len = samples_per_echo*echoes_per_scan;
@@ -1475,7 +1299,7 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 		}
 		else { // write data to text via c-programming
 			if (store_and_read_from_sdram) { // if read with dma is intended
-				datawrite_with_dma(samples_per_echo*echoes_per_scan/2,DISABLE_MESSAGE);
+				datawrite_with_dma(samples_per_echo*echoes_per_scan/2,ENABLE_MESSAGE);
 			}
 			else { // if read from fifo is intended
 				// wait until fsm stops
@@ -1670,10 +1494,12 @@ void CPMG_iterate (
 	for (i=0; i<samples_per_echo*echoes_per_scan; i++) Asum[i] = 0;
 
 	// downconverted sum
-	int dconvi_sum[samples_per_echo*echoes_per_scan/dconv_fact];
-	int dconvq_sum[samples_per_echo*echoes_per_scan/dconv_fact];
-	for (i=0; i<samples_per_echo*echoes_per_scan/dconv_fact; i++) dconvi_sum[i] = 0;
-	for (i=0; i<samples_per_echo*echoes_per_scan/dconv_fact; i++) dconvq_sum[i] = 0;
+	int dconv_size = samples_per_echo*echoes_per_scan/dconv_fact;
+	// printf ("dconv_size = %d\n", dconv_size); // print the buffer size
+	int dconvi_sum[dconv_size];
+	int dconvq_sum[dconv_size];
+	for (i=0; i < dconv_size; i++) dconvi_sum[i] = 0;
+	for (i=0; i < dconv_size; i++) dconvq_sum[i] = 0;
 
 	for (iterate=1; iterate<=number_of_iteration; iterate++) {
 		// printf("\n*** RUN %d ***\n",iterate);
@@ -2387,10 +2213,6 @@ void init_default_system_param() {
 void close_system () {
 	write_relay_cnt(0,0, DISABLE_MESSAGE); //  disable all relays
 
-#if (defined PCBv4_APR2019) || (defined PCBv2_FEB2018)
-	write_i2c_int_cnt (DISABLE, PAMP_IN_SEL_TEST_msk|PAMP_IN_SEL_RX_msk|PSU_15V_TX_P_EN_msk|PSU_15V_TX_N_EN_msk|AMP_HP_LT1210_EN_msk|PSU_5V_ANA_P_EN_msk|PSU_5V_ANA_N_EN_msk, DISABLE_MESSAGE);
-#endif
-
 	write_i2c_rx_gain (0x0F); //  disable the receiver gain
 
 }
@@ -2424,17 +2246,10 @@ int main(int argc, char * argv[]) {
     open_physical_memory_device();
     mmap_peripherals();
 
-#if (defined PCBv4_APR2019) || (defined PCBv2_FEB2018)
-    init_dac_ad5722r();			// power up the dac and init its operation
-    write_vbias(vbias);			// default number for vbias is -3.35V (reflection at -20dB at 4.3MHz)
-    write_vvarac(vvarac);		// the default number for v_varactor is -1.2V (gain of 23dB at 4.3 MHz)
-#endif
-#if (defined PCBv5_JUN2019)
     init_dac_ad5724r();			// power up the dac and init its operation
     // wr_dac_ad5724 IS A NEW FUNCTION AND IS NOT VERIFIED!!!!!
 	wr_dac_ad5724r (h2p_dac_addr, DAC_B, vbias, DISABLE_MESSAGE); // vbias cannot exceed 1V, due to J310 transistor gate voltage
 	wr_dac_ad5724r (h2p_dac_addr, DAC_A, vvarac, DISABLE_MESSAGE);
-#endif
 
 
     munmap_peripherals();
@@ -2486,19 +2301,12 @@ int main(int argc, char * argv[]) { // argv cannot contain more than so many cha
 
     // input parameters
     unsigned int gnrl_cnt = atoi(argv[1]);
-#ifdef PCBv5_JUN2019
     unsigned int gnrl_cnt1 = atoi(argv[2]);
-#endif
 
     open_physical_memory_device();
     mmap_peripherals();
 
-#ifdef PCBv5_JUN2019
     write_i2c_int_cnt (ENABLE, (gnrl_cnt & 0xFFFF), (gnrl_cnt1 & 0xFFFF), DISABLE_MESSAGE); // enable the toggled index
-#endif
-#ifdef PCBv4_APR2019
-    write_i2c_int_cnt (ENABLE, (gnrl_cnt & 0xFFFF), DISABLE_MESSAGE); // enable the toggled index
-#endif
 
     munmap_peripherals();
     close_physical_memory_device();
@@ -2547,7 +2355,7 @@ int main(int argc, char * argv[]) { // [ADD DYNAMIC MALLOC LIKE IN CPMG_ITERATE 
 }
 */
 
-/* CPMG Iterate (rename the output to "cpmg_iterate"). data_nowrite in CPMG_Sequence should 0
+// CPMG Iterate (rename the output to "cpmg_iterate"). data_nowrite in CPMG_Sequence should 0
 // if CPMG Sequence is used without writing to text file, rename the output to "cpmg_iterate_direct". Set this setting in CPMG_Sequence: data_nowrite = 1
 int main(int argc, char * argv[]) {
     // printf("NMR system start\n");
@@ -2582,8 +2390,8 @@ int main(int argc, char * argv[]) {
     alt_write_word( h2p_t1_pulse , pulse180_t1_int );
     alt_write_word( h2p_t1_delay , delay180_t1_int );
 
-    / *********************************************************************
-	************************** TEST CODE *******************************
+    /*********************************************************************
+	//************************** TEST CODE ********************************
     int64_t  datatest;
     alt_write_dword(h2p_sdram_addr, 0xAAAA88881111FFFF);
 	datatest = alt_read_dword(h2p_sdram_addr);
@@ -2607,7 +2415,8 @@ int main(int argc, char * argv[]) {
     datatest = alt_read_dword(h2p_fifoout_dummy_addr);
     datatest = alt_read_word(h2p_fifoincsr_dummy_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
     printf("%ld", datatest);
-    ****************************************************************** /
+    //********************************************************************/
+
     alt_write_word( h2p_adc_val_sub , 9732); // do noise measurement and all the data to get this ADC DC bias integer value
 
     // printf("cpmg_freq = %0.3f\n",cpmg_freq);
@@ -2638,7 +2447,7 @@ int main(int argc, char * argv[]) {
 
     return 0;
 }
-*/
+//
 
 /* FID Iterate (rename the output to "fid")
 int main(int argc, char * argv[]) {[ADD DYNAMIC MALLOC LIKE IN CPMG_ITERATE BEFORE EDITING ANYTHING!!!]
@@ -2703,7 +2512,7 @@ int main(int argc, char * argv[]) {[ADD DYNAMIC MALLOC LIKE IN CPMG_ITERATE BEFO
 }
 */
 
-// parameter calculator (calculate the real delay and timing based on the verilog
+/* parameter calculator (calculate the real delay and timing based on the verilog
 int main(int argc, char * argv[]) {
 
 	double b1Freq = atof(argv[1]);			// nmr RF cpmg frequency (in MHz)
@@ -2761,3 +2570,4 @@ int main(int argc, char * argv[]) {
 	return 0;
 
 }
+*/
