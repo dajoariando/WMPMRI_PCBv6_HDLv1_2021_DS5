@@ -8,6 +8,8 @@
 #include "functions/general.h"
 #include "hps_soc_system.h"
 
+//#define GET_RAW_DATA // get raw data and store it to the fifo. Needed for everything that's not using FPGA downconverted data
+
 #define ALT_AXI_FPGASLVS_OFST (0xC0000000) // axi_master
 #define HW_FPGA_AXI_SPAN (0x40000000) // Bridge span
 #define HW_FPGA_AXI_MASK ( HW_FPGA_AXI_SPAN - 1 )
@@ -183,9 +185,11 @@ FILE	*fptr;
 long i;
 long j;
 
-
+#ifdef GET_RAW_DATA
 unsigned int *rddata;
 unsigned int *rddata_16;
+#endif
+
 int *dconvi;
 // int *dconvq;
 
@@ -197,7 +201,7 @@ int *dconvi;
 char foldername[50]; // variable to store folder name of the measurement data
 char pathname[60];
 
-int dconv_fact = 2; // downconversion factor, programmable via dec_fact parameter in QSYS. The dconv_fact should be smaller/the same with the samples_per_echo.
+int dconv_fact = 16; // downconversion factor, programmable via dec_fact parameter in QSYS. The dconv_fact should be smaller/the same with the samples_per_echo.
 
 // FPGA control signal address
 uint32_t ctrl_out = CNT_OUT_default;					// default variable to store the current control state

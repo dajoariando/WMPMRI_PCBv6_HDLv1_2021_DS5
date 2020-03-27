@@ -857,14 +857,17 @@ void reset_dma(volatile unsigned int * dma_addr) {
 }
 
 
-
+#ifdef GET_RAW_DATA
 void datawrite_with_dma (uint32_t transfer_length, uint8_t en_mesg) {
 	int i_sd = 0;
 
 	fifo_to_sdram_dma_trf (h2p_dma_addr, ADC_FIFO_MEM_OUT_BASE, SDRAM_BASE, transfer_length);
 	check_dma(h2p_dma_addr, en_mesg); // wait for the dma operation to complete
 
+
 	unsigned int fifo_data_read;
+
+
 	for (i_sd=0; i_sd < transfer_length; i_sd++) {
 		fifo_data_read = alt_read_word(h2p_sdram_addr+i_sd);
 
@@ -872,11 +875,14 @@ void datawrite_with_dma (uint32_t transfer_length, uint8_t en_mesg) {
 		// And the symbol arrangement can be found in Altera Embedded Peripherals pdf.
 		// The 32-bit data per beat is transfered from FIFO to the SDRAM with the same
 		// format so this formatting should follow the FIFO format.
+
 		rddata_16[i_sd*2] = fifo_data_read & 0x3FFF;
 		rddata_16[i_sd*2+1] = (fifo_data_read>>16) & 0x3FFF;
+
 	}
 
 }
+#endif
 
 void data_dconv_write_with_dma (uint32_t transfer_length, uint8_t en_mesg) {
 	int i_sd = 0;
@@ -962,6 +968,7 @@ void tx_sampling(double tx_freq, double samp_freq, unsigned int tx_num_of_sample
 	// write_i2c_int_cnt (ENABLE, RX_IN_SEL_1_msk, DISABLE_MESSAGE);
 	// write_i2c_int_cnt (DISABLE, RX_IN_SEL_2_msk, DISABLE_MESSAGE);
 
+#ifdef GET_RAW_DATA
 	uint32_t fifo_mem_level = alt_read_word(h2p_adc_fifo_status_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
 	for (i=0; fifo_mem_level>0; i++) {
 		rddata[i] = alt_read_word(h2p_adc_fifo_addr);
@@ -997,6 +1004,7 @@ void tx_sampling(double tx_freq, double samp_freq, unsigned int tx_num_of_sample
 	else { // if the amount of data captured didn't match the amount of data being ordered, then something's going on with the acquisition
 		printf("number of data captured and data order : NOT MATCHED\nReconfigure the FPGA immediately\n");
 	}
+#endif
 
 }
 
@@ -1052,7 +1060,7 @@ void noise_sampling (unsigned char signal_path, unsigned int num_of_samples, cha
 	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out );
 	usleep(10000); // delay for data acquisition
 
-
+#ifdef GET_RAW_DATA
 	uint32_t fifo_mem_level = alt_read_word(h2p_adc_fifo_status_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
 	for (i=0; fifo_mem_level>0; i++) {
 		rddata[i] = alt_read_word(h2p_adc_fifo_addr);
@@ -1092,6 +1100,9 @@ void noise_sampling (unsigned char signal_path, unsigned int num_of_samples, cha
 	else { // if the amount of data captured didn't match the amount of data being ordered, then something's going on with the acquisition
 		printf("number of data captured and data order : NOT MATCHED\nReconfigure the FPGA immediately\n");
 	}
+
+#endif
+
 }
 
 // duty cycle is not functioning anymore
@@ -1249,7 +1260,7 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 		check_dma(h2p_dconvi_dma_addr, ENABLE_MESSAGE); // enable to check how many data is requested by the DMA.
 	}
 
-
+#ifdef GET_RAW_DATA
 	// WARNING: PUT ATTENTION TO DMA DELAY IF both raw data and dconv data are processed at the same time
 	// DMA should be started as fast as possible after FSM is started
 	// process raw data
@@ -1334,6 +1345,7 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 			}
 		}
 	}
+#endif
 
 	// process downconverted data
 	if (process_dconv_data) {
@@ -1446,8 +1458,10 @@ void CPMG_iterate (
 	nameavg = (char*) malloc (FILENAME_LENGTH*sizeof(char));
 
 	// amplitude sum
+#ifdef GET_RAW_DATA
 	int Asum[samples_per_echo*echoes_per_scan];
 	for (i=0; i<samples_per_echo*echoes_per_scan; i++) Asum[i] = 0;
+#endif
 
 	// downconverted sum
 	int dconv_size = samples_per_echo*echoes_per_scan/dconv_fact*2;
@@ -1483,29 +1497,37 @@ void CPMG_iterate (
 		// process the data
 		if (ph_cycl_en) {
 			if (iterate % 2 == 0) {
+#ifdef GET_RAW_DATA
 				for (i=0; i<samples_per_echo*echoes_per_scan; i++) Asum[i]-=rddata_16[i];
-				for (i=0; i<samples_per_echo*echoes_per_scan/dconv_fact; i++) dconvi_sum[i]-=dconvi[i];
+#endif
+				for (i=0; i<samples_per_echo*echoes_per_scan/dconv_fact*2; i++) dconvi_sum[i]-=dconvi[i];
 				// for (i=0; i<samples_per_echo*echoes_per_scan/dconv_fact; i++) dconvq_sum[i]-=dconvq[i];
 			}
 			else {
+#ifdef GET_RAW_DATA
 				for (i=0; i<samples_per_echo*echoes_per_scan; i++) Asum[i]+=rddata_16[i];
-				for (i=0; i<samples_per_echo*echoes_per_scan/dconv_fact; i++) dconvi_sum[i]+=dconvi[i];
+#endif
+				for (i=0; i<samples_per_echo*echoes_per_scan/dconv_fact*2; i++) dconvi_sum[i]+=dconvi[i];
 				// for (i=0; i<samples_per_echo*echoes_per_scan/dconv_fact; i++) dconvq_sum[i]+=dconvq[i];
 			}
 		}
 		else {
+#ifdef GET_RAW_DATA
 			for (i=0; i<samples_per_echo*echoes_per_scan; i++) Asum[i]+=rddata_16[i];
-			for (i=0; i<samples_per_echo*echoes_per_scan/dconv_fact; i++) dconvi_sum[i]+=dconvi[i];
+#endif
+			for (i=0; i<samples_per_echo*echoes_per_scan/dconv_fact*2; i++) dconvi_sum[i]+=dconvi[i];
 			// for (i=0; i<samples_per_echo*echoes_per_scan/dconv_fact; i++) dconvq_sum[i]+=dconvq[i];
 		}
 
 	}
 
+#ifdef GET_RAW_DATA
 	// write raw data sum
 	sprintf(pathname,"%s/%s",foldername,"asum");	// put the data into the data folder
 	fptr = fopen(pathname, "w");
 	for(i=0; i<samples_per_echo*echoes_per_scan; i++) fprintf(fptr, "%d\n", Asum[i]);
 	fclose(fptr);
+#endif
 
 	// write downconverted data sum in-phase
 	sprintf(pathname,"%s/%s",foldername,"dconvi");	// put the data into the data folder
@@ -1609,6 +1631,7 @@ void FID (double cpmg_freq, double pulse2_us, double pulse2_dtcl, long unsigned 
 	// Set_DPS (h2p_nmr_pll_addr, 3, 270, DISABLE_MESSAGE);
 	// usleep(scan_spacing_us);
 
+#ifdef GET_RAW_DATA
 	if (read_with_dma) { // if read with dma is intended
 		datawrite_with_dma (samples_per_echo/2,enable_message); // divided by 2 to compensate 2 symbol per beat in the fifo interface
 	}
@@ -1659,7 +1682,7 @@ void FID (double cpmg_freq, double pulse2_us, double pulse2_dtcl, long unsigned 
 		fprintf(fptr, "%d\n", rddata_16[i]);
 	}
 	fclose(fptr);
-
+#endif
 
 
 }
@@ -1839,6 +1862,7 @@ void noise (double cpmg_freq, long unsigned scan_spacing_us, unsigned int sample
 	// Set_DPS (h2p_nmr_pll_addr, 3, 270, DISABLE_MESSAGE);
 	// usleep(scan_spacing_us);
 
+#ifdef GET_RAW_DATA
 	if (read_with_dma) { // if read with dma is intended
 		datawrite_with_dma(samples_per_echo/2,enable_message); // divided by 2 to compensate 2 symbol per beat in the fifo interface
 	}
@@ -1889,7 +1913,7 @@ void noise (double cpmg_freq, long unsigned scan_spacing_us, unsigned int sample
 		fprintf(fptr, "%d\n", rddata_16[i]);
 	}
 	fclose(fptr);
-
+#endif
 
 
 }
@@ -2333,8 +2357,10 @@ int main(int argc, char * argv[]) {
 	unsigned int delay180_t1_int = atoi(argv[14]);
 
 	// memory allocation
+#ifdef GET_RAW_DATA
 	rddata_16 = (unsigned int*)malloc(samples_per_echo*echoes_per_scan*sizeof(unsigned int)); 	// added malloc to this routine only - other routines will need to be updated when required
 	rddata = (unsigned int *)malloc(samples_per_echo*echoes_per_scan/2*sizeof(unsigned int));	// petrillo 2Feb2019
+#endif
 	dconvi = (int *)malloc(samples_per_echo*echoes_per_scan*sizeof(int)/dconv_fact*2); // multiply 2 because of IQ data
 	// dconvq = (int *)malloc(samples_per_echo*echoes_per_scan*sizeof(int)/dconv_fact);
 
@@ -2398,8 +2424,10 @@ int main(int argc, char * argv[]) {
     close_physical_memory_device();
 
     // free memory
+#ifdef GET_RAW_DATA
     free(rddata_16);	//freeing up allocated memory requried for multiple calls from host
     free(rddata);		//petrillo 2Feb2019
+#endif
     free(dconvi);
     // free(dconvq);
 
