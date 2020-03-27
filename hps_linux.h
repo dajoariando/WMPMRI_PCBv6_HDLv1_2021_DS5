@@ -197,7 +197,7 @@ int *dconvi;
 char foldername[50]; // variable to store folder name of the measurement data
 char pathname[60];
 
-int dconv_fact = 16; // downconversion factor, programmable via dec_fact parameter in QSYS. The dconv_fact should be smaller/the same with the samples_per_echo.
+int dconv_fact = 2; // downconversion factor, programmable via dec_fact parameter in QSYS. The dconv_fact should be smaller/the same with the samples_per_echo.
 
 // FPGA control signal address
 uint32_t ctrl_out = CNT_OUT_default;					// default variable to store the current control state

@@ -889,13 +889,6 @@ void data_dconv_write_with_dma (uint32_t transfer_length, uint8_t en_mesg) {
 		dconvi[i_sd] = fifo_data_read;
 	}
 
-	// process dconvq
-	// check_dma(h2p_dconvq_dma_addr, DISABLE_MESSAGE); // check and wait until dma is done
-	// for (i_sd=0; i_sd < transfer_length; i_sd++) {
-	// 	fifo_data_read = alt_read_word(h2p_sdram_addr+2*transfer_length+i_sd); // offset by 2* transfer length due to raw_data and dconvi_data before that, each also have transfer_length length.
-	// 	dconvq[i_sd] = fifo_data_read;
-	// }
-
 }
 
 
@@ -1120,7 +1113,7 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 	uint8_t process_raw_data = 0; // obtain raw data directly (the original implementation, without FPGA downconversion)
 	uint8_t process_dconv_data = 1; // obtain data from downconversion fifo (requires implementation in FPGA as well)
 	uint8_t store_to_sdram_only = 0; // do not write the data from fifo to text file (external reading mechanism should be implemented)
-	uint8_t store_and_read_from_sdram = 0; // store data to sdram (increasing memory limit). Or else the program reads data directly from the fifo
+	uint8_t store_and_read_from_sdram = 1; // store data to sdram (increasing memory limit). Or else the program reads data directly from the fifo
 	uint8_t write_indv_data_to_file = 0; // write the individual scan data to a text file
 
 	usleep(scan_spacing_us);
@@ -1154,27 +1147,6 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 		echo_spacing_us,
 		samples_per_echo
 	);
-
-	/* start DMA with fork
-	int status;
-	switch (fork()) {
-		case -1:
-			// An error has occurred
-			printf("Fork Error");
-			break;
-		case 0:
-			// This code is executed by the first parent
-			printf("First child process is born, my pid is %d\n", getpid());
-			fifo_to_sdram_dma_trf (h2p_dma_addr, ADC_FIFO_MEM_OUT_BASE, SDRAM_BASE, samples_per_echo*echoes_per_scan/2);
-			check_dma(h2p_dma_addr, ENABLE_MESSAGE);
-			exit(0);
-			break;
-		default:
-			// This code is executed by the parent process
-			printf("Parent process is born, my pid is %d\n", getpid());
-			break;
-	}
-	*/
 
 	alt_write_word( (h2p_pulse1_addr) , cpmg_param[PULSE1_OFFST] );
 	alt_write_word( (h2p_delay1_addr) , cpmg_param[DELAY1_OFFST] );
@@ -1269,35 +1241,12 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 	// Set_DPS (h2p_nmr_pll_addr, 3, 270, DISABLE_MESSAGE);
 	// usleep(scan_spacing_us);
 
-	// wait for the child process
-	// wait(&status);
-
 	if (store_and_read_from_sdram) { // set sdram transfer (ATTEMPT TO INTERLEAVE BUT STILL NOT WORKING FOR BOTH CHANNEL. ONLY FOR ONE. NOTE THAT DATA TRANSFER IS REDUCED FOR DCONVQ to only samples_per_echo, instead of data_len)
 		unsigned int data_len = samples_per_echo*echoes_per_scan;
 		unsigned int data_dconv_len = samples_per_echo*echoes_per_scan*2/dconv_fact;
 		reset_dma(h2p_dconvi_dma_addr);
-		// reset_dma(h2p_dconvq_dma_addr);
-		// fifo_mem_level = alt_read_word(h2p_dconvi_csr_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
-		// fifo_mem_level = alt_read_word(h2p_dconvq_csr_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
 		fifo_to_sdram_dma_trf (h2p_dconvi_dma_addr, DCONV_FIFO_MEM_OUT_BASE,   SDRAM_BASE+data_len*4, data_dconv_len); // add data_len offset due to raw data before. (*4 factor is due to byte-addressing)
-		// fifo_to_sdram_dma_trf (h2p_dconvq_dma_addr, DCONV_FIFO_MEM_Q_OUT_BASE, SDRAM_BASE+(2*data_len)*4, data_len); // add 2*data_len offset due to raw data and dconvi data before. (*4 factor is due to byte-addressing)
-		/* try manual interleaving ---> NOT WORKING
-		uint32_t i_echo;
-		uint32_t dma_status;
-		uint32_t intrlv_fact = 2;
-		for (i_echo=0; i_echo < echoes_per_scan; i++) {
-			fifo_to_sdram_dma_trf (h2p_dconvi_dma_addr, DCONV_FIFO_MEM_OUT_BASE,   SDRAM_BASE +(  data_len+i_echo*samples_per_echo*intrlv_fact)*4, samples_per_echo*intrlv_fact);
-			do {
-				dma_status = alt_read_word(h2p_dconvi_dma_addr+DMA_STATUS_OFST);
-			}
-			while (!(dma_status & DMA_STAT_DONE_MSK) || (dma_status & DMA_STAT_BUSY_MSK));
-			fifo_to_sdram_dma_trf (h2p_dconvq_dma_addr, DCONV_FIFO_MEM_Q_OUT_BASE, SDRAM_BASE +(2*data_len+i_echo*samples_per_echo*intrlv_fact)*4, samples_per_echo*intrlv_fact);
-			do {
-				dma_status = alt_read_word(h2p_dconvq_dma_addr+DMA_STATUS_OFST);
-			}
-			while (!(dma_status & DMA_STAT_DONE_MSK) || (dma_status & DMA_STAT_BUSY_MSK));
-		}
-		*/
+		check_dma(h2p_dconvi_dma_addr, ENABLE_MESSAGE); // enable to check how many data is requested by the DMA.
 	}
 
 
@@ -1394,9 +1343,11 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 		else { // read directly from fifo
 			while ( alt_read_word(h2p_ctrl_in_addr) & (0x01<<NMR_SEQ_run_ofst) );
 			usleep(300);
+
 			fifo_mem_level = alt_read_word(h2p_dconvi_csr_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
 			printf("num of data in fifo: %d\n",fifo_mem_level);
-			for (i=0; fifo_mem_level>0; i++) {			// FIFO is 32-bit, while 1-sample is only 16-bit. FIFO organize this automatically. So, fetch only amount_of_data shifted by 2 to get amount_of_data/2.
+
+			for (i=0; fifo_mem_level>0; i++) {
 				dconvi[i] = alt_read_word(h2p_dconvi_addr);
 				//printf("dconvi = %d",dconvi[i]);
 				fifo_mem_level--;
@@ -1405,17 +1356,6 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 				}
 			}
 
-			/*
-			fifo_mem_level = alt_read_word(h2p_dconvq_csr_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
-			for (i=0; fifo_mem_level>0; i++) {			// FIFO is 32-bit, while 1-sample is only 16-bit. FIFO organize this automatically. So, fetch only amount_of_data shifted by 2 to get amount_of_data/2.
-				dconvq[i] = alt_read_word(h2p_dconvq_addr);
-				//printf("dconvi = %d",dconvq[i]);
-				fifo_mem_level--;
-				if (fifo_mem_level == 0) {
-					fifo_mem_level = alt_read_word(h2p_dconvq_csr_addr+ALTERA_AVALON_FIFO_LEVEL_REG);
-				}
-			}
-			*/
 		}
 	}
 
