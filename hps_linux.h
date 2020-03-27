@@ -92,6 +92,7 @@ void *h2p_echo_per_scan_addr 				= NULL; // the amount of echoes on 1 NMR scan
 void *h2p_t1_pulse							= NULL; // the pulse length before CPMG (T1 measurement)
 void *h2p_t1_delay							= NULL; // the delay length before CPMG (T1 measurement)
 void *h2p_adc_val_sub						= NULL; // the zero bias ADC voltage for downconversion DC bias removal
+void *h2p_dec_fact_addr						= NULL; // the decimation factor
 
 volatile unsigned int *h2p_dmadummy_addr				= NULL;
 volatile unsigned int *h2p_fifoin_dummy_addr			= NULL;
@@ -114,14 +115,14 @@ void *h2p_rx_delay_addr							= NULL; // generated delay for rx enable in Jarred
 void *h2p_switches_addr						= NULL;
 
 void 					*h2p_dconvi_addr 		= NULL; // downconverted data i fifo
-void 					*h2p_dconvq_addr 		= NULL; // downconverted data q fifo
+// void 					*h2p_dconvq_addr 		= NULL; // downconverted data q fifo
 volatile unsigned int	*h2p_dconvi_csr_addr	= NULL; // downconverted data i fifo status reg
-volatile unsigned int	*h2p_dconvq_csr_addr	= NULL; // downconverted data q fifo status reg
+// volatile unsigned int	*h2p_dconvq_csr_addr	= NULL; // downconverted data q fifo status reg
 
 // DMA & SDRAM
 volatile unsigned int *h2p_dma_addr = NULL;
 volatile unsigned int *h2p_dconvi_dma_addr = NULL;
-volatile unsigned int *h2p_dconvq_dma_addr = NULL;
+//volatile unsigned int *h2p_dconvq_dma_addr = NULL;
 volatile unsigned int *h2p_sdram_addr = NULL;
 
 
@@ -186,7 +187,7 @@ long j;
 unsigned int *rddata;
 unsigned int *rddata_16;
 int *dconvi;
-int *dconvq;
+// int *dconvq;
 
 // unsigned int rddata [128000];
 // unsigned int rddata_16[256000];
@@ -196,7 +197,7 @@ int *dconvq;
 char foldername[50]; // variable to store folder name of the measurement data
 char pathname[60];
 
-int dconv_fact = 1; // downconversion factor, see Qsys FIR filter
+int dconv_fact = 16; // downconversion factor, programmable via dec_fact parameter in QSYS. The dconv_fact should be smaller/the same with the samples_per_echo.
 
 // FPGA control signal address
 uint32_t ctrl_out = CNT_OUT_default;					// default variable to store the current control state

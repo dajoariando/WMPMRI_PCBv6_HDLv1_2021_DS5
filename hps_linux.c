@@ -138,12 +138,13 @@ void mmap_fpga_peripherals() {
 	h2p_t1_delay					= h2f_lw_axi_master + NMR_PARAMETERS_DELAY_T1_BASE;
 	h2p_dma_addr					= h2f_lw_axi_master + DMA_FIFO_BASE;
 	h2p_dconvi_dma_addr				= h2f_lw_axi_master + DMA_DCONVI_BASE;
-	h2p_dconvq_dma_addr				= h2f_lw_axi_master + DMA_DCONVQ_BASE;
+	//h2p_dconvq_dma_addr				= h2f_lw_axi_master + DMA_DCONVQ_BASE;
 	h2p_dconvi_addr					= h2f_lw_axi_master + DCONV_FIFO_MEM_OUT_BASE;
-	h2p_dconvq_addr					= h2f_lw_axi_master + DCONV_FIFO_MEM_Q_OUT_BASE;
+	//h2p_dconvq_addr					= h2f_lw_axi_master + DCONV_FIFO_MEM_Q_OUT_BASE;
 	h2p_dconvi_csr_addr				= h2f_lw_axi_master + DCONV_FIFO_MEM_IN_CSR_BASE;
-	h2p_dconvq_csr_addr				= h2f_lw_axi_master + DCONV_FIFO_MEM_Q_IN_CSR_BASE;
+	//h2p_dconvq_csr_addr				= h2f_lw_axi_master + DCONV_FIFO_MEM_Q_IN_CSR_BASE;
 	h2p_adc_val_sub					= h2f_lw_axi_master + NMR_PARAMETERS_ADC_VAL_SUB_BASE;
+	h2p_dec_fact_addr				= h2f_lw_axi_master + NMR_PARAMETERS_DEC_FACT_BASE;
 
 
 
@@ -883,17 +884,17 @@ void data_dconv_write_with_dma (uint32_t transfer_length, uint8_t en_mesg) {
 
 	// process dconvi
 	check_dma(h2p_dconvi_dma_addr, DISABLE_MESSAGE); // check and wait until dma is done
-	for (i_sd=0; i_sd < transfer_length; i_sd++) {
+	for (i_sd=0; i_sd < transfer_length*2/dconv_fact; i_sd++) {
 		fifo_data_read = alt_read_word(h2p_sdram_addr+transfer_length+i_sd); // offset by transfer length (the data before should be coming from raw data, not dconv data)
 		dconvi[i_sd] = fifo_data_read;
 	}
 
 	// process dconvq
-	check_dma(h2p_dconvq_dma_addr, DISABLE_MESSAGE); // check and wait until dma is done
-	for (i_sd=0; i_sd < transfer_length; i_sd++) {
-		fifo_data_read = alt_read_word(h2p_sdram_addr+2*transfer_length+i_sd); // offset by 2* transfer length due to raw_data and dconvi_data before that, each also have transfer_length length.
-		dconvq[i_sd] = fifo_data_read;
-	}
+	// check_dma(h2p_dconvq_dma_addr, DISABLE_MESSAGE); // check and wait until dma is done
+	// for (i_sd=0; i_sd < transfer_length; i_sd++) {
+	// 	fifo_data_read = alt_read_word(h2p_sdram_addr+2*transfer_length+i_sd); // offset by 2* transfer length due to raw_data and dconvi_data before that, each also have transfer_length length.
+	// 	dconvq[i_sd] = fifo_data_read;
+	// }
 
 }
 
@@ -1116,13 +1117,23 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 	double rx_dly_us_achieved = (double)rx_dly / adc_ltc1746_freq;
 
 	// read settings
-	uint8_t process_raw_data = 1; // obtain raw data directly (the original implementation, without FPGA downconversion)
-	uint8_t process_dconv_data = 0; // obtain data from downconversion fifo (requires implementation in FPGA as well)
+	uint8_t process_raw_data = 0; // obtain raw data directly (the original implementation, without FPGA downconversion)
+	uint8_t process_dconv_data = 1; // obtain data from downconversion fifo (requires implementation in FPGA as well)
 	uint8_t store_to_sdram_only = 0; // do not write the data from fifo to text file (external reading mechanism should be implemented)
-	uint8_t store_and_read_from_sdram = 1; // store data to sdram (increasing memory limit). Or else the program reads data directly from the fifo
+	uint8_t store_and_read_from_sdram = 0; // store data to sdram (increasing memory limit). Or else the program reads data directly from the fifo
 	uint8_t write_indv_data_to_file = 0; // write the individual scan data to a text file
 
 	usleep(scan_spacing_us);
+
+	// printf("nilai = %d\n", samples_per_echo % dconv_fact);
+	if (samples_per_echo % dconv_fact != 0) {
+		printf("\t[ERROR] (samples_per_echo/dconv_fact) is not an integer!\n");
+		if (samples_per_echo < dconv_fact) {
+			printf("\t[ERROR] samples_per_echo is less than dconv_fact!\n");
+		}
+		return;
+	}
+
 
 	// read the current ctrl_out
 	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
@@ -1263,12 +1274,13 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 
 	if (store_and_read_from_sdram) { // set sdram transfer (ATTEMPT TO INTERLEAVE BUT STILL NOT WORKING FOR BOTH CHANNEL. ONLY FOR ONE. NOTE THAT DATA TRANSFER IS REDUCED FOR DCONVQ to only samples_per_echo, instead of data_len)
 		unsigned int data_len = samples_per_echo*echoes_per_scan;
+		unsigned int data_dconv_len = samples_per_echo*echoes_per_scan*2/dconv_fact;
 		reset_dma(h2p_dconvi_dma_addr);
-		reset_dma(h2p_dconvq_dma_addr);
+		// reset_dma(h2p_dconvq_dma_addr);
 		// fifo_mem_level = alt_read_word(h2p_dconvi_csr_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
 		// fifo_mem_level = alt_read_word(h2p_dconvq_csr_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
-		fifo_to_sdram_dma_trf (h2p_dconvi_dma_addr, DCONV_FIFO_MEM_OUT_BASE,   SDRAM_BASE+   data_len *4, data_len); // add data_len offset due to raw data before. (*4 factor is due to byte-addressing)
-		fifo_to_sdram_dma_trf (h2p_dconvq_dma_addr, DCONV_FIFO_MEM_Q_OUT_BASE, SDRAM_BASE+(2*data_len)*4, data_len); // add 2*data_len offset due to raw data and dconvi data before. (*4 factor is due to byte-addressing)
+		fifo_to_sdram_dma_trf (h2p_dconvi_dma_addr, DCONV_FIFO_MEM_OUT_BASE,   SDRAM_BASE+data_len*4, data_dconv_len); // add data_len offset due to raw data before. (*4 factor is due to byte-addressing)
+		// fifo_to_sdram_dma_trf (h2p_dconvq_dma_addr, DCONV_FIFO_MEM_Q_OUT_BASE, SDRAM_BASE+(2*data_len)*4, data_len); // add 2*data_len offset due to raw data and dconvi data before. (*4 factor is due to byte-addressing)
 		/* try manual interleaving ---> NOT WORKING
 		uint32_t i_echo;
 		uint32_t dma_status;
@@ -1383,6 +1395,7 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 			while ( alt_read_word(h2p_ctrl_in_addr) & (0x01<<NMR_SEQ_run_ofst) );
 			usleep(300);
 			fifo_mem_level = alt_read_word(h2p_dconvi_csr_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
+			printf("num of data in fifo: %d\n",fifo_mem_level);
 			for (i=0; fifo_mem_level>0; i++) {			// FIFO is 32-bit, while 1-sample is only 16-bit. FIFO organize this automatically. So, fetch only amount_of_data shifted by 2 to get amount_of_data/2.
 				dconvi[i] = alt_read_word(h2p_dconvi_addr);
 				//printf("dconvi = %d",dconvi[i]);
@@ -1391,6 +1404,8 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 					fifo_mem_level = alt_read_word(h2p_dconvi_csr_addr+ALTERA_AVALON_FIFO_LEVEL_REG);
 				}
 			}
+
+			/*
 			fifo_mem_level = alt_read_word(h2p_dconvq_csr_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
 			for (i=0; fifo_mem_level>0; i++) {			// FIFO is 32-bit, while 1-sample is only 16-bit. FIFO organize this automatically. So, fetch only amount_of_data shifted by 2 to get amount_of_data/2.
 				dconvq[i] = alt_read_word(h2p_dconvq_addr);
@@ -1400,6 +1415,7 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 					fifo_mem_level = alt_read_word(h2p_dconvq_csr_addr+ALTERA_AVALON_FIFO_LEVEL_REG);
 				}
 			}
+			*/
 		}
 	}
 
@@ -1494,12 +1510,12 @@ void CPMG_iterate (
 	for (i=0; i<samples_per_echo*echoes_per_scan; i++) Asum[i] = 0;
 
 	// downconverted sum
-	int dconv_size = samples_per_echo*echoes_per_scan/dconv_fact;
+	int dconv_size = samples_per_echo*echoes_per_scan/dconv_fact*2;
 	// printf ("dconv_size = %d\n", dconv_size); // print the buffer size
 	int dconvi_sum[dconv_size];
-	int dconvq_sum[dconv_size];
+	// int dconvq_sum[dconv_size];
 	for (i=0; i < dconv_size; i++) dconvi_sum[i] = 0;
-	for (i=0; i < dconv_size; i++) dconvq_sum[i] = 0;
+	// for (i=0; i < dconv_size; i++) dconvq_sum[i] = 0;
 
 	for (iterate=1; iterate<=number_of_iteration; iterate++) {
 		// printf("\n*** RUN %d ***\n",iterate);
@@ -1529,18 +1545,18 @@ void CPMG_iterate (
 			if (iterate % 2 == 0) {
 				for (i=0; i<samples_per_echo*echoes_per_scan; i++) Asum[i]-=rddata_16[i];
 				for (i=0; i<samples_per_echo*echoes_per_scan/dconv_fact; i++) dconvi_sum[i]-=dconvi[i];
-				for (i=0; i<samples_per_echo*echoes_per_scan/dconv_fact; i++) dconvq_sum[i]-=dconvq[i];
+				// for (i=0; i<samples_per_echo*echoes_per_scan/dconv_fact; i++) dconvq_sum[i]-=dconvq[i];
 			}
 			else {
 				for (i=0; i<samples_per_echo*echoes_per_scan; i++) Asum[i]+=rddata_16[i];
 				for (i=0; i<samples_per_echo*echoes_per_scan/dconv_fact; i++) dconvi_sum[i]+=dconvi[i];
-				for (i=0; i<samples_per_echo*echoes_per_scan/dconv_fact; i++) dconvq_sum[i]+=dconvq[i];
+				// for (i=0; i<samples_per_echo*echoes_per_scan/dconv_fact; i++) dconvq_sum[i]+=dconvq[i];
 			}
 		}
 		else {
 			for (i=0; i<samples_per_echo*echoes_per_scan; i++) Asum[i]+=rddata_16[i];
 			for (i=0; i<samples_per_echo*echoes_per_scan/dconv_fact; i++) dconvi_sum[i]+=dconvi[i];
-			for (i=0; i<samples_per_echo*echoes_per_scan/dconv_fact; i++) dconvq_sum[i]+=dconvq[i];
+			// for (i=0; i<samples_per_echo*echoes_per_scan/dconv_fact; i++) dconvq_sum[i]+=dconvq[i];
 		}
 
 	}
@@ -1557,10 +1573,10 @@ void CPMG_iterate (
 	for(i=0; i<samples_per_echo*echoes_per_scan/dconv_fact; i++) fprintf(fptr, "%d\n", dconvi_sum[i]);
 	fclose(fptr);
 
-	sprintf(pathname,"%s/%s",foldername,"dconvq");	// put the data into the data folder
-	fptr = fopen(pathname, "w");
-	for(i=0; i<samples_per_echo*echoes_per_scan/dconv_fact; i++) fprintf(fptr, "%d\n", dconvq_sum[i]);
-	fclose(fptr);
+	// sprintf(pathname,"%s/%s",foldername,"dconvq");	// put the data into the data folder
+	// fptr = fopen(pathname, "w");
+	// for(i=0; i<samples_per_echo*echoes_per_scan/dconv_fact; i++) fprintf(fptr, "%d\n", dconvq_sum[i]);
+	// fclose(fptr);
 
 
 	free(name);
@@ -2379,8 +2395,8 @@ int main(int argc, char * argv[]) {
 	// memory allocation
 	rddata_16 = (unsigned int*)malloc(samples_per_echo*echoes_per_scan*sizeof(unsigned int)); 	// added malloc to this routine only - other routines will need to be updated when required
 	rddata = (unsigned int *)malloc(samples_per_echo*echoes_per_scan/2*sizeof(unsigned int));	// petrillo 2Feb2019
-	dconvi = (int *)malloc(samples_per_echo*echoes_per_scan*sizeof(int)/dconv_fact);
-	dconvq = (int *)malloc(samples_per_echo*echoes_per_scan*sizeof(int)/dconv_fact);
+	dconvi = (int *)malloc(samples_per_echo*echoes_per_scan*sizeof(int)/dconv_fact*2); // multiply 2 because of IQ data
+	// dconvq = (int *)malloc(samples_per_echo*echoes_per_scan*sizeof(int)/dconv_fact);
 
     open_physical_memory_device();
     mmap_peripherals();
@@ -2389,6 +2405,8 @@ int main(int argc, char * argv[]) {
     // write t1-IR measurement parameters (put both to 0 if IR is not desired)
     alt_write_word( h2p_t1_pulse , pulse180_t1_int );
     alt_write_word( h2p_t1_delay , delay180_t1_int );
+
+    alt_write_word( h2p_dec_fact_addr , dconv_fact);
 
     /*********************************************************************
 	//************************** TEST CODE ********************************
@@ -2443,7 +2461,7 @@ int main(int argc, char * argv[]) {
     free(rddata_16);	//freeing up allocated memory requried for multiple calls from host
     free(rddata);		//petrillo 2Feb2019
     free(dconvi);
-    free(dconvq);
+    // free(dconvq);
 
     return 0;
 }
