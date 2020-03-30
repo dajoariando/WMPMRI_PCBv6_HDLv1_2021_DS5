@@ -146,7 +146,8 @@ void mmap_fpga_peripherals() {
 	h2p_adc_val_sub					= h2f_lw_axi_master + NMR_PARAMETERS_ADC_VAL_SUB_BASE;
 	h2p_dec_fact_addr				= h2f_lw_axi_master + NMR_PARAMETERS_DEC_FACT_BASE;
 
-
+	h2p_dconv_firI_addr				= h2f_lw_axi_master + DCONV_FIR_BASE;
+	h2p_dconv_firQ_addr				= h2f_lw_axi_master + DCONV_FIR_Q_BASE;
 
 	h2p_sdram_addr					= h2f_axi_master + SDRAM_BASE;
 	h2p_switches_addr				= h2f_axi_master + SWITCHES_BASE;
@@ -2148,6 +2149,8 @@ void init_default_system_param() {
 	// alt_write_word(h2p_ctrl_out_addr, ctrl_out);		// write down the control
 	// usleep(100);
 
+	ctrl_out |= (DCONV_FIR_RST_RESET_N | DCONV_FIR_Q_RST_RESET_N); // enable the FIR filter
+
 	/* manual selection of cshunt and cseries (put breakpoint before running)
 	int cshuntval = 120;
 	int cseriesval = 215;
@@ -2372,7 +2375,24 @@ int main(int argc, char * argv[]) {
     alt_write_word( h2p_t1_pulse , pulse180_t1_int );
     alt_write_word( h2p_t1_delay , delay180_t1_int );
 
+    // write downconversion factor
     alt_write_word( h2p_dec_fact_addr , dconv_fact);
+
+    // read the current ctrl_out
+    ctrl_out = alt_read_word(h2p_ctrl_out_addr);
+
+    // read and write fir coefficients
+    // fir registers cannot be read like a standard avalon-mm registers, it has sequence if the setting is set to read/write mode
+    // look at the fir user guide to see this sequence
+    // however, it can be set just to read mode or write mode and it supposed to work with avalon-mm
+    ctrl_out &= ~(DCONV_FIR_RST_RESET_N | DCONV_FIR_Q_RST_RESET_N); // reset the FIR filter
+    alt_write_word(h2p_ctrl_out_addr, ctrl_out);	// write down the control
+    usleep(1);
+    ctrl_out |= (DCONV_FIR_RST_RESET_N | DCONV_FIR_Q_RST_RESET_N); // enable the FIR filter
+    alt_write_word(h2p_ctrl_out_addr, ctrl_out);	// write down the control
+    usleep(1);
+    alt_write_word(h2p_dconv_firQ_addr, 20);
+    //
 
     /*********************************************************************
 	//************************** TEST CODE ********************************

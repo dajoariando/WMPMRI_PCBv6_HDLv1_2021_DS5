@@ -95,6 +95,8 @@ void *h2p_t1_pulse							= NULL; // the pulse length before CPMG (T1 measurement
 void *h2p_t1_delay							= NULL; // the delay length before CPMG (T1 measurement)
 void *h2p_adc_val_sub						= NULL; // the zero bias ADC voltage for downconversion DC bias removal
 void *h2p_dec_fact_addr						= NULL; // the decimation factor
+volatile unsigned int *h2p_dconv_firI_addr					= NULL; // the fir I address
+volatile unsigned int *h2p_dconv_firQ_addr					= NULL; // the fir Q address
 
 volatile unsigned int *h2p_dmadummy_addr				= NULL;
 volatile unsigned int *h2p_fifoin_dummy_addr			= NULL;
