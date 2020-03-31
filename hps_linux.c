@@ -1,45 +1,7 @@
 // if compilation gives error of "errno not found" or "EXIT_FAILURE not found", it is a bug.
 // comment #include <stdlib.h> and compile, it'll fail. And then comment it out again, it should work.
 
-// BOARD DEFINITION (ONLY ENABLE 1 AT A TIME)
-#define PCBv5_JUN2019 // not being used.
-
-#include <assert.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <stdbool.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/mman.h>
-#include <unistd.h>
-#include <time.h>
-#include <math.h>
-#include <sys/wait.h>
-
-#include <alt_generalpurpose_io.h>
-#include <hwlib.h>
-#include <socal/alt_gpio.h>
-#include <socal/hps.h>
-#include <socal/socal.h>
-
 #include "hps_linux.h"
-#include "functions/general.h"
-#include "functions/avalon_i2c.h"
-#include "functions/tca9555_driver.h"
-#include "functions/avalon_spi.h"
-
-
-#include "functions/dac_ad5724r_driver.h"
-#include "functions/general.h"
-#include "functions/reconfig_functions.h"
-#include "functions/pll_param_generator.h"
-#include "functions/adc_functions.h"
-#include "functions/cpmg_functions.h"
-#include "functions/AlteraIP/altera_avalon_fifo_regs.h"
-#include "functions/nmr_table.h"
-#include "functions/avalon_dma.h"
-#include "hps_soc_system.h"
 
 void open_physical_memory_device() {
     // We need to access the system's physical memory so we can map it to user
@@ -60,6 +22,7 @@ void open_physical_memory_device() {
 void close_physical_memory_device() {
     close(fd_dev_mem);
 }
+
 
 void mmap_hps_peripherals() {
     hps_gpio = mmap(NULL, hps_gpio_span, PROT_READ | PROT_WRITE, MAP_SHARED, fd_dev_mem, hps_gpio_ofst);
@@ -121,7 +84,7 @@ void mmap_fpga_peripherals() {
 	h2p_delay2_addr					= h2f_lw_axi_master + NMR_PARAMETERS_DELAY_SIG_BASE;
 	h2p_nmr_sys_pll_addr			= h2f_lw_axi_master + NMR_SYS_PLL_RECONFIG_BASE;
 	h2p_echo_per_scan_addr			= h2f_lw_axi_master + NMR_PARAMETERS_ECHOES_PER_SCAN_BASE;
-	h2p_i2c_ext_addr				= h2f_lw_axi_master + I2C_EXT_BASE;
+	// h2p_i2c_ext_addr				= h2f_lw_axi_master + I2C_EXT_BASE;
 	h2p_i2c_int_addr				= h2f_lw_axi_master + I2C_INT_BASE;
 	h2p_adc_fifo_addr				= h2f_lw_axi_master + ADC_FIFO_MEM_OUT_BASE;
 	h2p_adc_fifo_status_addr		= h2f_lw_axi_master + ADC_FIFO_MEM_IN_CSR_BASE;
@@ -129,7 +92,9 @@ void mmap_fpga_peripherals() {
 	h2p_init_adc_delay_addr			= h2f_lw_axi_master + NMR_PARAMETERS_INIT_DELAY_BASE;
 	h2p_rx_delay_addr				= h2f_lw_axi_master + NMR_PARAMETERS_RX_DELAY_BASE;
 
-	h2p_dac_addr					= h2f_lw_axi_master + DAC_GRAD_BASE; // MAKE SURE TO USE THE CORRECT DAC ADDRESS. AT THIS POINT, THE GRAD DAC IS USED CAUSE THERE's DESIGN ERROR IN PCB V5.0
+	h2p_dac_preamp_addr				= h2f_lw_axi_master + DAC_PREAMP_BASE;
+	h2p_dac_grad_addr				= h2f_lw_axi_master + DAC_GRAD_BASE;
+
 
 	h2p_spi_mtch_ntwrk_addr			= h2f_lw_axi_master + SPI_MTCH_NTWRK_BASE;
 	h2p_spi_afe_relays_addr			= h2f_lw_axi_master + SPI_AFE_RELAYS_BASE;
@@ -185,6 +150,7 @@ void mmap_peripherals() {
     mmap_hps_peripherals();
     mmap_fpga_peripherals();
 }
+
 
 void munmap_peripherals() {
     munmap_hps_peripherals();
@@ -253,6 +219,7 @@ void write_relay_cnt (uint16_t c_shunt, uint16_t c_series, uint8_t en_mesg) {
 	}
 
 }
+
 
 void write_pamprelay_cnt (uint16_t val, uint8_t en_mesg) {
 
@@ -402,6 +369,7 @@ void write_i2c_int_cnt (uint32_t en, uint32_t addr_msk0, uint32_t addr_msk1, uin
 
 }
 
+
 void sweep_matching_network() {
 	uint8_t c_sw = 0;
 	uint8_t c_sta = 36;
@@ -415,18 +383,18 @@ void sweep_matching_network() {
 			usleep(2000000);
 		}
 	}
-};
+}
 
 void init_dac_ad5724r () {
 	// read the current ctrl_out
 	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
 
-	alt_write_word( (h2p_dac_addr + SPI_TXDATA_offst) , WR_DAC|PWR_CNT_REG|DAC_A_PU|DAC_B_PU|DAC_C_PU|DAC_D_PU|REF_PU );	// power up reference voltage, dac A, dac B, dac C, and DAC D
-	while (!(alt_read_word(h2p_dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ));					// wait for the spi command to finish
-	alt_write_word( (h2p_dac_addr + SPI_TXDATA_offst) , WR_DAC|OUT_RANGE_SEL_REG|DAC_ALL|PN50 );			// set range voltage to +/- 5.0V
-	while (!(alt_read_word(h2p_dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ));					// wait for the spi command to finish
-	alt_write_word( (h2p_dac_addr + SPI_TXDATA_offst) , WR_DAC|CNT_REG|Other_opt|Clamp_en);				// enable the current limit clamp
-	while (!(alt_read_word(h2p_dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ));					// wait for the spi command to finish
+	alt_write_word( (h2p_dac_preamp_addr + SPI_TXDATA_offst) , WR_DAC|PWR_CNT_REG|DAC_A_PU|DAC_B_PU|DAC_C_PU|DAC_D_PU|REF_PU );	// power up reference voltage, dac A, dac B, dac C, and DAC D
+	while (!(alt_read_word(h2p_dac_preamp_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ));					// wait for the spi command to finish
+	alt_write_word( (h2p_dac_preamp_addr + SPI_TXDATA_offst) , WR_DAC|OUT_RANGE_SEL_REG|DAC_ALL|PN50 );			// set range voltage to +/- 5.0V
+	while (!(alt_read_word(h2p_dac_preamp_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ));					// wait for the spi command to finish
+	alt_write_word( (h2p_dac_preamp_addr + SPI_TXDATA_offst) , WR_DAC|CNT_REG|Other_opt|Clamp_en);				// enable the current limit clamp
+	while (!(alt_read_word(h2p_dac_preamp_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ));					// wait for the spi command to finish
 
 	// clear the DAC output
 	ctrl_out = ctrl_out & (~DAC_CLR) ;
@@ -441,38 +409,15 @@ void init_dac_ad5724r () {
 }
 
 
-void print_warning_ad5722r() {
-	int dataread;
-
-	alt_write_word( (h2p_dac_addr + SPI_TXDATA_offst) , RD_DAC|PWR_CNT_REG );					// read the power control register
-	while (!(alt_read_word(h2p_dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ));			// wait for the spi command to finish
-	alt_write_word( (h2p_dac_addr + SPI_TXDATA_offst) , WR_DAC|CNT_REG|NOP );					// no operation (NOP)
-	while (!(alt_read_word(h2p_dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ));			// wait for the spi command to finish
-	while (!(alt_read_word(h2p_dac_addr + SPI_STATUS_offst) & (1<<status_RRDY_bit) ));			// wait for the data to be ready
-	dataread = alt_read_word( h2p_dac_addr + SPI_RXDATA_offst );								// read the data
-	if (dataread & (1<<5) ) {
-		printf("\nDevice is in thermal shutdown (TSD) mode!\n");
-	}
-	if (dataread & (1<<7)) {
-		printf("DAC A (vvarac) overcurrent alert (OCa)!\n");
-		usleep(50);
-	}
-	if (dataread & (1<<9)) {
-		printf("DAC B (vbias) overcurrent alert (OCb)!\n");
-		usleep(50);
-	}
-
-}
-
 void print_warning_ad5724r(uint8_t en_mesg) {
 	int dataread;
 
-	alt_write_word( (h2p_dac_addr + SPI_TXDATA_offst) , RD_DAC|PWR_CNT_REG );					// read the power control register
-	while (!(alt_read_word(h2p_dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ));			// wait for the spi command to finish
-	alt_write_word( (h2p_dac_addr + SPI_TXDATA_offst) , WR_DAC|CNT_REG|NOP );					// no operation (NOP)
-	while (!(alt_read_word(h2p_dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ));			// wait for the spi command to finish
-	while (!(alt_read_word(h2p_dac_addr + SPI_STATUS_offst) & (1<<status_RRDY_bit) ));			// wait for the data to be ready
-	dataread = alt_read_word( h2p_dac_addr + SPI_RXDATA_offst );								// read the data
+	alt_write_word( (h2p_dac_preamp_addr + SPI_TXDATA_offst) , RD_DAC|PWR_CNT_REG );					// read the power control register
+	while (!(alt_read_word(h2p_dac_preamp_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ));			// wait for the spi command to finish
+	alt_write_word( (h2p_dac_preamp_addr + SPI_TXDATA_offst) , WR_DAC|CNT_REG|NOP );					// no operation (NOP)
+	while (!(alt_read_word(h2p_dac_preamp_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ));			// wait for the spi command to finish
+	while (!(alt_read_word(h2p_dac_preamp_addr + SPI_STATUS_offst) & (1<<status_RRDY_bit) ));			// wait for the data to be ready
+	dataread = alt_read_word( h2p_dac_preamp_addr + SPI_RXDATA_offst );								// read the data
 	if (dataread & (TSD) ) {
 		printf("\t\nDevice is in thermal shutdown (TSD) mode!\n");
 	}
@@ -532,36 +477,13 @@ void print_warning_ad5724r(uint8_t en_mesg) {
 
 }
 
-void write_vvarac (double vvarac) {
-	int16_t vvarac_int;
-
-	vvarac_int = (int16_t)((vvarac/5)*2048);
-	if (vvarac_int > 2047) {
-		vvarac_int = 2047;
-	}
-
-	write_vvarac_int(vvarac_int);
-}
-
-void write_vbias (double vbias) {
-	int16_t vbias_int;
-
-	vbias_int = (int16_t)((vbias/5)*2048);
-	if (vbias_int > 2047) {
-		vbias_int = 2047;
-	}
-
-	write_vbias_int(vbias_int);
-}
-
-void write_vbias_int(int16_t dac_v_bias) { //  easy method to write number to dac
-
-// MCP4728 is the DAC starting from PCBv5, which is not bipolar and ended up not being used
-
-}
 
 void wr_dac_ad5724r (volatile unsigned int * dac_addr, unsigned int dac_id, double volt, uint8_t en_mesg) {
 	int16_t volt_int;
+
+	uint8_t ldac_is_wired = 0; // if LDAC pin is wired to the FPGA
+	uint8_t sdo_is_wired = 0; // if the SDO pin is wired to the FPGA
+
 
 	volt_int = (int16_t)((volt/5)*2048);
 	if (volt_int > 2047) {
@@ -576,193 +498,50 @@ void wr_dac_ad5724r (volatile unsigned int * dac_addr, unsigned int dac_id, doub
 	// read the current ctrl_out
 	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
 
-	alt_write_word( (dac_addr + SPI_TXDATA_offst) , WR_DAC|DAC_REG|dac_id|((volt_int & 0x0FFF)<<4) );			// set the voltage
-	while (!(alt_read_word(dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ));
-
-	// CODE BELOW IS WRITTEN BECAUSE SOMETIMES THE DAC DOESN'T WORK REALLY WELL
-	// DATA WRITTEN IS NOT THE SAME AS DATA READ FROM THE ADC
-	// THEREFORE THE DATA IS READ AND VERIFIED BEFORE IT IS USED AS AN OUTPUT
-
-	// read the data just written to the dac
-
-	alt_write_word( (dac_addr + SPI_TXDATA_offst) , RD_DAC|DAC_REG|dac_id|0x00 );			// read DAC value
-	while (!(alt_read_word(dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ));			// wait for the spi command to finish
-	alt_write_word( (dac_addr + SPI_TXDATA_offst) , WR_DAC|CNT_REG|NOP );					// no operation (NOP)
-	while (!(alt_read_word(dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ));			// wait for the spi command to finish
-	while (!(alt_read_word(dac_addr + SPI_STATUS_offst) & (1<<status_RRDY_bit) ));			// wait for read data to be ready
+	alt_write_word( (dac_addr + SPI_TXDATA_offst) , WR_DAC|DAC_REG|dac_id|((volt_int & 0x0FFF)<<4) );	// set the voltage
+	while (!(alt_read_word(dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ));						// wait for the spi command to finish
 
 	// use this only if SDO pin is connected to the FPGA
-	int dataread;
-	dataread = alt_read_word( h2p_dac_addr + SPI_RXDATA_offst );		// read the data at the dac register
-	if (en_mesg) {
-		printf("\tV_in: %4.3f V ",(double)volt_int/2048*5); 			// print the voltage desired
-		printf("\t(w:0x%04x)", (volt_int & 0x0FFF) ); 					// print the integer dac_varac value, truncate to 12-bit signed integer value
-		printf("\t(r:0x%04x)\n",dataread>>4);							// print the read value
-	}
-	usleep(100);
-	print_warning_ad5724r(en_mesg); // find out if warning has been detected
+	// read the value of the DAC, check warning, and redo the writing if necessary
+	if (sdo_is_wired) {
+		alt_write_word( (dac_addr + SPI_TXDATA_offst) , RD_DAC|DAC_REG|dac_id|0x00 );			// read DAC value
+		while (!(alt_read_word(dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ));			// wait for the spi command to finish
+		alt_write_word( (dac_addr + SPI_TXDATA_offst) , WR_DAC|CNT_REG|NOP );					// no operation (NOP)
+		while (!(alt_read_word(dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ));			// wait for the spi command to finish
+		while (!(alt_read_word(dac_addr + SPI_STATUS_offst) & (1<<status_RRDY_bit) ));			// wait for read data to be ready
 
-	// recursion to make sure it works
-	if ( (volt_int & 0x0FFF) != (dataread>>4)) {
-		wr_dac_ad5724r (dac_addr, dac_id, volt, en_mesg);
-	}
-
-	/* write data register to DAC output ***LDAC is currently hardwired
-	ctrl_out = ctrl_out & ~DAC_LDAC_en;
-	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out ) ;
-	usleep(50);
-
-	// disable LDAC one more time
-	ctrl_out = ctrl_out | DAC_LDAC_en;
-	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out ) ;
-	usleep(50);
-	*/
-
-}
-
-void write_vvarac_int(int16_t dac_v_varac) { //  easy method to write number to dac
-
-	// read the current ctrl_out
-	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
-
-	alt_write_word( (h2p_dac_addr + SPI_TXDATA_offst) , WR_DAC|DAC_REG|DAC_A|((dac_v_varac & 0x0FFF)<<4) );			// set the dac A voltage
-	while (!(alt_read_word(h2p_dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ));
-
-
-
-	// CODE BELOW IS WRITTEN BECAUSE SOMETIMES THE DAC DOESN'T WORK REALLY WELL
-	// DATA WRITTEN IS NOT THE SAME AS DATA READ FROM THE ADC
-	// THEREFORE THE DATA IS READ AND VERIFIED BEFORE IT IS USED AS AN OUTPUT
-
-	// read the data just written to the dac
-	alt_write_word( (h2p_dac_addr + SPI_TXDATA_offst) , RD_DAC|DAC_REG|DAC_A|0x00 );			// read DAC A value
-	while (!(alt_read_word(h2p_dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ));			// wait for the spi command to finish
-	alt_write_word( (h2p_dac_addr + SPI_TXDATA_offst) , WR_DAC|CNT_REG|NOP );					// no operation (NOP)
-	while (!(alt_read_word(h2p_dac_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) ));			// wait for the spi command to finish
-	while (!(alt_read_word(h2p_dac_addr + SPI_STATUS_offst) & (1<<status_RRDY_bit) ));			// wait for read data to be ready
-
-	/* in this version, the MISO is not connected to FPGA
-	int dataread;
-	dataread = alt_read_word( h2p_dac_addr + SPI_RXDATA_offst );								// read the data
-	printf("vvarac: %4.3f V ",(double)dac_v_varac/2048*5); 										// print the voltage desired
-	printf("(w:0x%04x)", (dac_v_varac & 0x0FFF) ); 												// print the integer dac_varac value, truncate to 12-bit signed integer value
-	printf("(r:0x%04x)\n",dataread>>4);															// print the read value
-	// find out if warning has been detected
-	usleep(1);
-	print_warning_ad5722r();
-	// if the data written to the dac is different than data read back, rewrite the dac
-	// recursively until the data is right
-	if ( (dac_v_varac & 0x0FFF) != (dataread>>4)) {
-		write_vvarac_int (dac_v_varac);
-	}
-	*/
-
-	// write data register to DAC output
-	ctrl_out = ctrl_out & ~DAC_LDAC_en;
-	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out ) ;
-	usleep(50);
-
-	// disable LDAC one more time
-	ctrl_out = ctrl_out | DAC_LDAC_en;
-	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out ) ;
-	usleep(50);
-
-
-}
-
-void sweep_vbias (){
-	double vbias_cur;
-	double vbias_sta = -5;
-	double vbias_sto = 0.5;
-	double vbias_spa = 0.1;
-	vbias_cur = vbias_sta;
-	while (1) {
-		write_vbias(vbias_cur);
-		vbias_cur += vbias_spa;
-		if (vbias_cur > vbias_sto) {
-			vbias_cur = vbias_sta;
+		int dataread;
+		dataread = alt_read_word( dac_addr + SPI_RXDATA_offst );		// read the data at the dac register
+		if (en_mesg) {
+			printf("\tV_in: %4.3f V ",(double)volt_int/2048*5); 			// print the voltage desired
+			printf("\t(w:0x%04x)", (volt_int & 0x0FFF) ); 					// print the integer dac_varac value, truncate to 12-bit signed integer value
+			printf("\t(r:0x%04x)\n",dataread>>4);							// print the read value
 		}
-		usleep(1000000);
-	}
-}
+		usleep(100);
+		print_warning_ad5724r(en_mesg); // find out if warning has been detected
 
-void sweep_vvarac () {
-	int16_t dac_v_varac = -450;
-	int16_t init_varac_val = 2047;
-	int16_t final_varac_val = -2048;
-	dac_v_varac = init_varac_val;
-
-	// read the current ctrl_out
-	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
-
-	while (1) {
-		// clear the DAC output
-		// ctrl_out = ctrl_out & (~DAC_CLR) ;
-		// alt_write_word( (h2p_ctrl_out_addr) , ctrl_out ) ;
-
-		// release the clear pin
-		// ctrl_out = ctrl_out | DAC_CLR;
-		// alt_write_word( (h2p_ctrl_out_addr) , ctrl_out ) ;
-
-		// write vvarac
-		write_vvarac_int(dac_v_varac);
-
-		dac_v_varac -= 100;
-		if (dac_v_varac < final_varac_val) {
-			dac_v_varac = init_varac_val;
-		}
-		usleep(1000000);
-	}
-}
-
-void write_i2c_rx_gain (uint8_t rx_gain) { // 0x00 is the least gain, 0x0E is max gain, and 0x0F is open circuit
-	uint8_t i2c_tx_gain_ctl_addr = 0x42;	// i2c address for TCA9555PWR used by the relay
-	i2c_tx_gain_ctl_addr >>= 1;				// shift by one because the LSB address is not used as an address (controlled by the Altera I2C IP)
-
-	// reorder the gain bits so that rx_gain is max at 1111 and min at 0000
-	// 1111 also means infinite resistance / infinite gain / open circuit. 0000 means all 4 resistors are connected
-	uint8_t rx_gain_reorder =
-		((rx_gain & 0b00000001)<<4) |
-		((rx_gain & 0b00000010)<<4) |
-		((rx_gain & 0b00000100)<<5) |
-		((rx_gain & 0b00001000)<<3);
-	rx_gain_reorder = (~rx_gain_reorder) & 0xF0; // invert the bits so that 0x0F for the input means all the resistance are disconnected (max gain) and 0x00 means all the resistance are connected (min gain)
-
-	alt_write_word( (h2p_i2c_ext_addr+CTRL_OFST), 1<<CORE_EN_SHFT ); // enable i2c core
-    
-	alt_write_word((h2p_i2c_ext_addr+TFR_CMD_OFST) , (1<<STA_SHFT) | (0<<STO_SHFT) | (i2c_tx_gain_ctl_addr<<AD_SHFT) | (WR_I2C<<RW_D_SHFT) );
-	alt_write_word((h2p_i2c_ext_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (CNT_REG_CONF_PORT0 & I2C_DATA_MSK) );
-	alt_write_word((h2p_i2c_ext_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (1<<STO_SHFT) | ((0x00) & I2C_DATA_MSK) );				// set port 0 as output
-                                                     
-	alt_write_word((h2p_i2c_ext_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (i2c_tx_gain_ctl_addr<<AD_SHFT) | (WR_I2C<<RW_D_SHFT) );
-	alt_write_word((h2p_i2c_ext_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (CNT_REG_OUT_PORT0 & I2C_DATA_MSK) );
-	alt_write_word((h2p_i2c_ext_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (1<<STO_SHFT) | (rx_gain_reorder & I2C_DATA_MSK) );				// set output on port 0
-
-/* PORT 1 is not connected to anything but the P1_0
-	alt_write_word((h2p_i2c_ext_addr+TFR_CMD_OFST) , (1<<STA_SHFT) | (0<<STO_SHFT) | (i2c_tx_gain_ctl_addr<<AD_SHFT) | (WR_I2C<<RW_D_SHFT) );
-	alt_write_word((h2p_i2c_ext_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (CNT_REG_CONF_PORT1 & I2C_DATA_MSK) );
-	alt_write_word((h2p_i2c_ext_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (1<<STO_SHFT) | ((0x0) & I2C_DATA_MSK) );					// set port 1 as output
-                                                     
-	alt_write_word((h2p_i2c_ext_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (i2c_tx_gain_ctl_addr<<AD_SHFT) | (WR_I2C<<RW_D_SHFT) );
-	alt_write_word((h2p_i2c_ext_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (0<<STO_SHFT) | (CNT_REG_OUT_PORT1 & I2C_DATA_MSK) );
-	alt_write_word((h2p_i2c_ext_addr+TFR_CMD_OFST) , (0<<STA_SHFT) | (1<<STO_SHFT) | ((c_series_reorder) & I2C_DATA_MSK) );	// set output on port 1
-
-*/
-
-	usleep(10000);
-}
-
-void sweep_rx_gain () {
-	int i_rx_gain = 0;
-	while (1) {
-		for (i_rx_gain = 0; i_rx_gain<0x10; i_rx_gain++) {
-			write_i2c_rx_gain (i_rx_gain);
-			printf("current rx_gain_data : %d\n",i_rx_gain);
-			usleep(3000000);
+		// recursion to make sure it works
+		if ( (volt_int & 0x0FFF) != (dataread>>4)) {
+			wr_dac_ad5724r (dac_addr, dac_id, volt, en_mesg);
 		}
 	}
 
+
+
+	// write data register to DAC output (ONLY IF LDAC IS WIRED)
+	if (ldac_is_wired) {
+		ctrl_out = ctrl_out & ~DAC_LDAC_en;
+		alt_write_word( (h2p_ctrl_out_addr) , ctrl_out ) ;
+		usleep(50);
+
+		// disable LDAC one more time
+		ctrl_out = ctrl_out | DAC_LDAC_en;
+		alt_write_word( (h2p_ctrl_out_addr) , ctrl_out ) ;
+		usleep(50);
+	}
 }
+
+
 
 void check_dma (volatile unsigned int * dma_addr, uint8_t en_mesg) {
 	// this function waits until the dma addressed finishes its operation
@@ -801,6 +580,7 @@ void check_dma (volatile unsigned int * dma_addr, uint8_t en_mesg) {
 	}
 }
 
+
 /*
 void fifo_to_sdram_dma_trf (uint32_t transfer_length) {
 	alt_write_word(h2p_dma_addr+DMA_CONTROL_OFST,	DMA_CTRL_SWRST_MSK); 	// write twice to do software reset
@@ -813,6 +593,7 @@ void fifo_to_sdram_dma_trf (uint32_t transfer_length) {
 	alt_write_word(h2p_dma_addr+DMA_CONTROL_OFST,	(DMA_CTRL_WORD_MSK|DMA_CTRL_LEEN_MSK|DMA_CTRL_RCON_MSK|DMA_CTRL_GO_MSK)); // set settings & also enable transfer
 }
 */
+
 void fifo_to_sdram_dma_trf (volatile unsigned int * dma_addr, uint32_t rd_addr, uint32_t wr_addr, uint32_t transfer_length) {
 	// the original conventional code
 	alt_write_word(dma_addr+DMA_CONTROL_OFST,	DMA_CTRL_SWRST_MSK); 	// write twice to do software reset
@@ -849,8 +630,8 @@ void fifo_to_sdram_dma_trf (volatile unsigned int * dma_addr, uint32_t rd_addr, 
 		check_dma(dma_addr, DISABLE_MESSAGE); // wait for the dma operation to complete
 	}
 	*/
-
 }
+
 
 void reset_dma(volatile unsigned int * dma_addr) {
 	alt_write_word(dma_addr+DMA_CONTROL_OFST,	DMA_CTRL_SWRST_MSK); 	// write twice to do software reset
@@ -898,11 +679,10 @@ void data_dconv_write_with_dma (uint32_t transfer_length, uint8_t en_mesg) {
 
 }
 
-
 void tx_sampling(double tx_freq, double samp_freq, unsigned int tx_num_of_samples, char * filename) {
 
 	// the bigger is the gain at this stage, the bigger is the impedance. The impedance should be ideally 50ohms which is achieved by using rx_gain between 0x00 and 0x07
-	// write_i2c_rx_gain (0x00 & 0x0F);	// WARNING! GENERATES ERROR IF UNCOMMENTED: IT WILL RUIN THE OPERATION OF SWITCHED MATCHING NETWORK. set the gain of the last stage opamp --> 0x0F is to mask the unused 4 MSBs
+	// write_i2c_rx_gain (0x00 & 0x0F);// OBSOLETE. Gain is not controlled using this function anymores
 
 	// read the current ctrl_out
 	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
@@ -1009,6 +789,7 @@ void tx_sampling(double tx_freq, double samp_freq, unsigned int tx_num_of_sample
 
 }
 
+
 void noise_sampling (unsigned char signal_path, unsigned int num_of_samples, char * filename) {
 	// signal path: the signal path used with the ADC, can be normal signal path or S11 signal path
 
@@ -1019,7 +800,7 @@ void noise_sampling (unsigned char signal_path, unsigned int num_of_samples, cha
 	alt_write_word( (h2p_adc_samples_per_echo_addr) , num_of_samples ); // the number of samples taken for tx sampling
 
 	// the bigger is the gain at this stage, the bigger is the impedance. The impedance should be ideally 50ohms which is achieved by using rx_gain between 0x00 and 0x07
-	write_i2c_rx_gain (0x00 & 0x0F);	// set the gain of the last stage opamp --> 0x0F is to mask the unused 4 MSBs
+// 	write_i2c_rx_gain (0x00 & 0x0F);	//// OBSOLETE. Gain is not controlled using this function anymores
 
 	// KEEP THIS CODE IF YOU DON'T USE PYTHON
 	//if (signal_path == SIG_NORM_PATH) {
@@ -2000,6 +1781,7 @@ void noise_iterate (
 
 }
 
+
 void tune_board (double freq) {
 	//double c_idx;
 	//c_idx = (freq-mtch_ntwrk_freq_sta)/mtch_ntwrk_freq_spa;	// find index for C
@@ -2009,17 +1791,18 @@ void tune_board (double freq) {
 	//}
 	// write_relay_cnt(cpar_tbl[(uint16_t)c_idx],cser_tbl[(uint16_t)c_idx]);	// find c values from table
 
-	double vvarac_idx;
-	vvarac_idx = (freq-vvarac_freq_sta)/vvarac_freq_spa;	// find index for the vvarac
+	// function uses obsolete ad5722r from old board
+	// double vvarac_idx;
+	// vvarac_idx = (freq-vvarac_freq_sta)/vvarac_freq_spa;	// find index for the vvarac
 	// round vvarac (integer conversion always floors the number (even for 0.99999), which causes trouble, so compensate for it)
-	if ( vvarac_idx - (double)((uint16_t)vvarac_idx) > 0.5 ) {
-		vvarac_idx += 0.5;
-	}
-	write_vvarac(vvarac_tbl[(uint16_t)vvarac_idx]);								// find vvarac from the table
+	// if ( vvarac_idx - (double)((uint16_t)vvarac_idx) > 0.5 ) {
+	//	vvarac_idx += 0.5;
+	// }
+	// write_vvarac(vvarac_tbl[(uint16_t)vvarac_idx]);	// function uses obsolete ad5722r from old board
+	// write_vbias(-1.25);								// function uses obsolete ad5722r from old board
 
-	write_vbias(-1.25);															// minimum S11 value also max gain (32dB) : -1.25V
-	//usleep(1000000);															// wait for the v_varac & v_bias to settle down
-	usleep(10000);															// wait for the v_varac & v_bias to settle down
+	// usleep(1000000);									// wait for the v_varac & v_bias to settle down
+	usleep(10000);										// wait for the v_varac & v_bias to settle down
 }
 
 void wobble_function (double startfreq, double stopfreq, double spacfreq, double sampfreq, unsigned int wobb_samples) {
@@ -2084,6 +1867,7 @@ void wobble_function (double startfreq, double stopfreq, double spacfreq, double
 	}
 
 }
+
 
 void noise_meas (unsigned int signal_path, unsigned int num_of_samples) {
 
@@ -2176,7 +1960,7 @@ void init_default_system_param() {
 	// write_vvarac(-1.2);	// the default number for v_varactor is -1.2V (gain of 23dB at 4.3 MHz)
 
 
-	// write_i2c_rx_gain (0x00 & 0x0F);	// 0x0F is to mask the unused 4 MSBs
+	// write_i2c_rx_gain (0x00 & 0x0F);	//// OBSOLETE. Gain is not controlled using this function anymores
 	// tune_board(4.3); 				// tune board frequency: input is frequency in MHz
 
 	// reset controller (CAUTION: this will fix the problem of crashed controller temporarily but won't really eliminate the problem: fix the state machine instead)
@@ -2196,9 +1980,9 @@ void init_default_system_param() {
 void close_system () {
 	write_relay_cnt(0,0, DISABLE_MESSAGE); //  disable all relays
 
-	write_i2c_rx_gain (0x0F); //  disable the receiver gain
-
+// 	write_i2c_rx_gain (0x0F); // OBSOLETE. Gain is not controlled using this function anymoren
 }
+
 
 // MAIN SYSTEM (ENABLE ONE AT A TIME)
 
@@ -2231,9 +2015,8 @@ int main(int argc, char * argv[]) {
 
     init_dac_ad5724r();			// power up the dac and init its operation
     // wr_dac_ad5724 IS A NEW FUNCTION AND IS NOT VERIFIED!!!!!
-	wr_dac_ad5724r (h2p_dac_addr, DAC_B, vbias, DISABLE_MESSAGE); // vbias cannot exceed 1V, due to J310 transistor gate voltage
-	wr_dac_ad5724r (h2p_dac_addr, DAC_A, vvarac, DISABLE_MESSAGE);
-
+	wr_dac_ad5724r (h2p_dac_preamp_addr, DAC_A, vbias, DISABLE_MESSAGE); // vbias cannot exceed 1V, due to J310 transistor gate voltage
+	wr_dac_ad5724r (h2p_dac_preamp_addr, DAC_B, vvarac, DISABLE_MESSAGE);
 
     munmap_peripherals();
     close_physical_memory_device();
@@ -2395,7 +2178,7 @@ int main(int argc, char * argv[]) {
     //
 
     /*********************************************************************
-	//************************** TEST CODE ********************************
+	// ************************** TEST CODE ********************************
     int64_t  datatest;
     alt_write_dword(h2p_sdram_addr, 0xAAAA88881111FFFF);
 	datatest = alt_read_dword(h2p_sdram_addr);
@@ -2419,7 +2202,8 @@ int main(int argc, char * argv[]) {
     datatest = alt_read_dword(h2p_fifoout_dummy_addr);
     datatest = alt_read_word(h2p_fifoincsr_dummy_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
     printf("%ld", datatest);
-    //********************************************************************/
+    // ******************************************************************** /
+	// ********************************************************************/
 
     alt_write_word( h2p_adc_val_sub , 9732); // do noise measurement and all the data to get this ADC DC bias integer value
 

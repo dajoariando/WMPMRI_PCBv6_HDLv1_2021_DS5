@@ -23,50 +23,12 @@
 #define ADC_FIFO_RST				(1<<ADC_FIFO_RST_ofst)
 #define FSM_START					(1<<FSM_START_ofst)
 #define PHASE_CYCLING				(1<<PHASE_CYCLING_ofst)
-#define DAC_LDAC_en					(1<<DAC_LDAC_en_ofst)
-#define DAC_CLR						(1<<DAC_CLR_ofst) // not used for PCB v5.0
+#define DAC_LDAC_en					(1<<DAC_LDAC_en_ofst)				// not used for PCB v6.0
+#define DAC_CLR						(1<<DAC_CLR_ofst) 					// not used for PCB v6.0
 
 #define CNT_OUT_default		(DAC_CLR | NMR_CLK_GATE_AVLN)
 
-#if defined(PCBv2_FEB2018) || defined(PCBv4_APR2019)
-	// Output control signal to FPGA via I2C
-	#define PSU_15V_TX_P_EN_ofst	(0)
-	#define PSU_15V_TX_N_EN_ofst	(1)
-	#define AMP_HP_LT1210_EN_ofst	(2)
-	#define PSU_5V_TX_N_EN_ofst		(3)
-	#define PAMP_IN_SEL_TEST_ofst	(4)
-	#define PAMP_IN_SEL_RX_ofst		(5)
-	#define GPIO_GEN_PURP_1_ofst	(6)
-	#define MTCH_NTWRK_RST_ofst		(6) //  the same pin as GPIO_GEN_PURP_1_ofst
-	#define PSU_5V_ADC_EN_ofst		(7)
-	#define RX_AMP_GAIN_2_ofst		(8)
-	#define RX_AMP_GAIN_1_ofst		(9)
-	#define RX_AMP_GAIN_4_ofst		(10)
-	#define RX_AMP_GAIN_3_ofst		(11)
-	#define RX_IN_SEL_1_ofst		(12)
-	#define RX_IN_SEL_2_ofst		(13)
-	#define PSU_5V_ANA_P_EN_ofst	(14)
-	#define PSU_5V_ANA_N_EN_ofst	(15)
-
-	#define PSU_15V_TX_P_EN_msk		(1<<PSU_15V_TX_P_EN_ofst)
-	#define PSU_15V_TX_N_EN_msk		(1<<PSU_15V_TX_N_EN_ofst)
-	#define AMP_HP_LT1210_EN_msk	(1<<AMP_HP_LT1210_EN_ofst)
-	#define PSU_5V_TX_N_EN_msk		(1<<PSU_5V_TX_N_EN_ofst)
-	#define PAMP_IN_SEL_TEST_msk	(1<<PAMP_IN_SEL_TEST_ofst)
-	#define PAMP_IN_SEL_RX_msk		(1<<PAMP_IN_SEL_RX_ofst)
-	#define GPIO_GEN_PURP_1_msk		(1<<GPIO_GEN_PURP_1_ofst)
-	#define MTCH_NTWRK_RST_msk		(1<<MTCH_NTWRK_RST_ofst) //  the same pin as GPIO_GEN_PURP_1_ofst, active-low
-	#define PSU_5V_ADC_EN_msk		(1<<PSU_5V_ADC_EN_ofst)
-	#define RX_AMP_GAIN_2_msk		(1<<RX_AMP_GAIN_2_ofst)
-	#define RX_AMP_GAIN_1_msk		(1<<RX_AMP_GAIN_1_ofst)
-	#define RX_AMP_GAIN_4_msk		(1<<RX_AMP_GAIN_4_ofst)
-	#define RX_AMP_GAIN_3_msk		(1<<RX_AMP_GAIN_3_ofst)
-	#define RX_IN_SEL_1_msk			(1<<RX_IN_SEL_1_ofst)
-	#define RX_IN_SEL_2_msk			(1<<RX_IN_SEL_2_ofst)
-	#define PSU_5V_ANA_P_EN_msk		(1<<PSU_5V_ANA_P_EN_ofst)
-	#define PSU_5V_ANA_N_EN_msk		(1<<PSU_5V_ANA_N_EN_ofst)
-#elif defined(PCBv5_JUN2019)
-	// Output control signal to FPGA via I2C addr:0x40
+// Output control signal to FPGA via I2C addr:0x40
 	#define RX_FL_ofst		(0)
 	#define RX_FH_ofst		(1)
 	#define RX_SEL2_ofst	(2)
@@ -100,8 +62,7 @@
 	#define RX1_1L_msk		(1<<RX1_1L_ofst)
 	#define RX2_H_msk		(1<<RX2_H_ofst)
 	#define RX2_L_msk		(1<<RX2_L_ofst)
-
-	// Output control signal to FPGA via I2C addr:0x41
+// Output control signal to FPGA via I2C addr:0x41
 	//#define ___					(0+16)
 	//#define ___					(1+16)
 	//#define ___					(2+16)
@@ -135,18 +96,7 @@
 	#define PSU_15V_TX_N_EN_msk		(1<<PSU_15V_TX_N_EN_ofst)
 	#define PSU_5V_TX_N_EN_msk		(1<<PSU_5V_TX_N_EN_ofst)
 	//#define ___					(15+16)
-
-#endif
-
-#ifdef PCBv4_APR2019
-	#define CNT_I2C_default		(MTCH_NTWRK_RST_msk)
-#endif /* PCBv4_APR2019 */
-#ifdef PCBv2_FEB2018
-	#define CNT_I2C_default		(0)
-#endif /* PCBv2_FEB2018 */
-#ifdef PCBv5_JUN2019
-	#define CNT_I2C_default		(0)
-#endif /* PCBv5_JUN2019 */
+#define CNT_I2C_default			(0)
 
 // Offsets for input status signal
 #define PLL_ANALYZER_lock_ofst		(2)
@@ -156,8 +106,6 @@
 #define PLL_ANALYZER_lock			(1<<PLL_ANALYZER_lock_ofst)
 #define NMR_SEQ_run					(1<<NMR_SEQ_run_ofst)
 #define PLL_NMR_SYS_lock			(1<<PLL_NMR_SYS_lock_ofst)
-
-
 
 
 // general variable
