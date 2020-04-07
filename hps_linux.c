@@ -903,8 +903,7 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 	double rx_dly_us_achieved = (double)rx_dly / adc_ltc1746_freq;
 
 	// read settings
-	uint8_t process_raw_data = 0; // obtain raw data directly (the original implementation, without FPGA downconversion)
-	uint8_t process_dconv_data = 1; // obtain data from downconversion fifo (requires implementation in FPGA as well)
+	uint8_t process_dconv_data = 0; // obtain data from downconversion fifo (requires implementation in FPGA as well)
 	uint8_t store_to_sdram_only = 0; // do not write the data from fifo to text file (external reading mechanism should be implemented)
 	uint8_t store_and_read_from_sdram = 1; // store data to sdram (increasing memory limit). Or else the program reads data directly from the fifo
 	uint8_t write_indv_data_to_file = 0; // write the individual scan data to a text file
@@ -1034,100 +1033,99 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 	// Set_DPS (h2p_nmr_pll_addr, 3, 270, DISABLE_MESSAGE);
 	// usleep(scan_spacing_us);
 
-	if (store_and_read_from_sdram) { // set sdram transfer (ATTEMPT TO INTERLEAVE BUT STILL NOT WORKING FOR BOTH CHANNEL. ONLY FOR ONE. NOTE THAT DATA TRANSFER IS REDUCED FOR DCONVQ to only samples_per_echo, instead of data_len)
+#ifdef GET_RAW_DATA
+	// WARNING: PUT ATTENTION TO DMA DELAY IF both raw data and dconv data are processed at the same time
+	// DMA should be started as fast as possible after FSM is started
+	// process raw data
+	if (store_to_sdram_only) { // do not write data to text with C programming: external mechanism should be implemented
+		fifo_to_sdram_dma_trf (h2p_dma_addr, ADC_FIFO_MEM_OUT_BASE, SDRAM_BASE, samples_per_echo*echoes_per_scan/2); // start DMA process
+		//while ( alt_read_word(h2p_ctrl_in_addr) & (0x01<<NMR_SEQ_run_ofst) ); // might not be needed as the system will wait until data is available anyway
+	}
+	else { // write data to text via c-programming
+		if (store_and_read_from_sdram) { // if read with dma is intended
+			datawrite_with_dma(samples_per_echo*echoes_per_scan/2,ENABLE_MESSAGE);
+		}
+		else { // if read from fifo is intended
+			// wait until fsm stops
+			while ( alt_read_word(h2p_ctrl_in_addr) & (0x01<<NMR_SEQ_run_ofst) );
+			usleep(300);
+
+			// PRINT # of DATAS in FIFO
+			// fifo_mem_level = alt_read_word(h2p_adc_fifo_status_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
+			// printf("num of data in fifo: %d\n",fifo_mem_level);
+
+			// READING DATA FROM FIFO
+			fifo_mem_level = alt_read_word(h2p_adc_fifo_status_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
+			for (i=0; fifo_mem_level>0; i++) {			// FIFO is 32-bit, while 1-sample is only 16-bit. FIFO organize this automatically. So, fetch only amount_of_data shifted by 2 to get amount_of_data/2.
+				rddata[i] = alt_read_word(h2p_adc_fifo_addr);
+
+				fifo_mem_level--;
+				if (fifo_mem_level == 0) {
+					fifo_mem_level = alt_read_word(h2p_adc_fifo_status_addr+ALTERA_AVALON_FIFO_LEVEL_REG);
+				}
+				//usleep(1);
+			}
+			usleep(100);
+
+			if (i*2 == samples_per_echo*echoes_per_scan) { // if the amount of data captured matched with the amount of data being ordered, then continue the process. if not, then don't process the datas (requesting empty data from the fifo will cause the FPGA to crash, so this one is to avoid that)
+				// printf("number of captured data vs requested data : MATCHED\n");
+
+				j=0;
+				for(i=0; i < ( ((long)samples_per_echo*(long)echoes_per_scan)>>1 ); i++) {
+					rddata_16[j++] = (rddata[i] & 0x3FFF);		// 14 significant bit
+					rddata_16[j++] = ((rddata[i]>>16)&0x3FFF);	// 14 significant bit
+				}
+
+			}
+			else { // if the amount of data captured didn't match the amount of data being ordered, then something's going on with the acquisition
+				printf("[ERROR] number of data captured (%ld) and data ordered (%d): NOT MATCHED\nData are flushed!\nReconfigure the FPGA immediately\n", i*2, samples_per_echo*echoes_per_scan);
+			}
+		}
+
+		if (write_indv_data_to_file) { // put the individual scan data into a file
+			// write the raw data from adc to a file
+			sprintf(pathname,"%s/%s",foldername,filename);	// put the data into the data folder
+			fptr = fopen(pathname, "w");
+			if (fptr == NULL) {
+				printf("File does not exists \n");
+			}
+			for(i=0; i < ( ((long)samples_per_echo*(long)echoes_per_scan) ); i++) {
+				fprintf(fptr, "%d\n", rddata_16[i]);
+			}
+			fclose(fptr);
+
+			// write the averaged data to a file
+			unsigned int avr_data[samples_per_echo];
+			// initialize array
+			for (i=0; i<samples_per_echo; i++) {
+				avr_data[i] = 0;
+			};
+			for (i=0; i<samples_per_echo; i++) {
+				for (j=i; j<( ((long)samples_per_echo*(long)echoes_per_scan) ); j+=samples_per_echo) {
+					avr_data[i] += rddata_16[j];
+				}
+			}
+			sprintf(pathname,"%s/%s",foldername,avgname);	// put the data into the data folder
+			fptr = fopen(pathname, "w");
+			if (fptr == NULL) {
+				printf("File does not exists \n");
+			}
+			for (i=0; i<samples_per_echo; i++) {
+				fprintf(fptr, "%d\n", avr_data[i]);
+			}
+			fclose(fptr);
+		}
+	}
+#endif
+
+#ifdef GET_DCONV_DATA
+	if (store_and_read_from_sdram) {
 		unsigned int data_len = samples_per_echo*echoes_per_scan;
 		unsigned int data_dconv_len = samples_per_echo*echoes_per_scan*2/dconv_fact;
 		reset_dma(h2p_dconvi_dma_addr);
 		fifo_to_sdram_dma_trf (h2p_dconvi_dma_addr, DCONV_FIFO_MEM_OUT_BASE,   SDRAM_BASE+data_len*4, data_dconv_len); // add data_len offset due to raw data before. (*4 factor is due to byte-addressing)
 		check_dma(h2p_dconvi_dma_addr, ENABLE_MESSAGE); // enable to check how many data is requested by the DMA.
 	}
-
-#ifdef GET_RAW_DATA
-	// WARNING: PUT ATTENTION TO DMA DELAY IF both raw data and dconv data are processed at the same time
-	// DMA should be started as fast as possible after FSM is started
-	// process raw data
-	if (process_raw_data) {
-		if (store_to_sdram_only) { // do not write data to text with C programming: external mechanism should be implemented
-			fifo_to_sdram_dma_trf (h2p_dma_addr, ADC_FIFO_MEM_OUT_BASE, SDRAM_BASE, samples_per_echo*echoes_per_scan/2); // start DMA process
-			//while ( alt_read_word(h2p_ctrl_in_addr) & (0x01<<NMR_SEQ_run_ofst) ); // might not be needed as the system will wait until data is available anyway
-		}
-		else { // write data to text via c-programming
-			if (store_and_read_from_sdram) { // if read with dma is intended
-				datawrite_with_dma(samples_per_echo*echoes_per_scan/2,ENABLE_MESSAGE);
-			}
-			else { // if read from fifo is intended
-				// wait until fsm stops
-				while ( alt_read_word(h2p_ctrl_in_addr) & (0x01<<NMR_SEQ_run_ofst) );
-				usleep(300);
-
-				// PRINT # of DATAS in FIFO
-				// fifo_mem_level = alt_read_word(h2p_adc_fifo_status_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
-				// printf("num of data in fifo: %d\n",fifo_mem_level);
-
-				// READING DATA FROM FIFO
-				fifo_mem_level = alt_read_word(h2p_adc_fifo_status_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
-				for (i=0; fifo_mem_level>0; i++) {			// FIFO is 32-bit, while 1-sample is only 16-bit. FIFO organize this automatically. So, fetch only amount_of_data shifted by 2 to get amount_of_data/2.
-					rddata[i] = alt_read_word(h2p_adc_fifo_addr);
-
-					fifo_mem_level--;
-					if (fifo_mem_level == 0) {
-						fifo_mem_level = alt_read_word(h2p_adc_fifo_status_addr+ALTERA_AVALON_FIFO_LEVEL_REG);
-					}
-					//usleep(1);
-				}
-				usleep(100);
-
-				if (i*2 == samples_per_echo*echoes_per_scan) { // if the amount of data captured matched with the amount of data being ordered, then continue the process. if not, then don't process the datas (requesting empty data from the fifo will cause the FPGA to crash, so this one is to avoid that)
-					// printf("number of captured data vs requested data : MATCHED\n");
-
-					j=0;
-					for(i=0; i < ( ((long)samples_per_echo*(long)echoes_per_scan)>>1 ); i++) {
-						rddata_16[j++] = (rddata[i] & 0x3FFF);		// 14 significant bit
-						rddata_16[j++] = ((rddata[i]>>16)&0x3FFF);	// 14 significant bit
-					}
-
-				}
-				else { // if the amount of data captured didn't match the amount of data being ordered, then something's going on with the acquisition
-					printf("[ERROR] number of data captured (%ld) and data ordered (%d): NOT MATCHED\nData are flushed!\nReconfigure the FPGA immediately\n", i*2, samples_per_echo*echoes_per_scan);
-				}
-			}
-
-			if (write_indv_data_to_file) { // put the individual scan data into a file
-				// write the raw data from adc to a file
-				sprintf(pathname,"%s/%s",foldername,filename);	// put the data into the data folder
-				fptr = fopen(pathname, "w");
-				if (fptr == NULL) {
-					printf("File does not exists \n");
-				}
-				for(i=0; i < ( ((long)samples_per_echo*(long)echoes_per_scan) ); i++) {
-					fprintf(fptr, "%d\n", rddata_16[i]);
-				}
-				fclose(fptr);
-
-				// write the averaged data to a file
-				unsigned int avr_data[samples_per_echo];
-				// initialize array
-				for (i=0; i<samples_per_echo; i++) {
-					avr_data[i] = 0;
-				};
-				for (i=0; i<samples_per_echo; i++) {
-					for (j=i; j<( ((long)samples_per_echo*(long)echoes_per_scan) ); j+=samples_per_echo) {
-						avr_data[i] += rddata_16[j];
-					}
-				}
-				sprintf(pathname,"%s/%s",foldername,avgname);	// put the data into the data folder
-				fptr = fopen(pathname, "w");
-				if (fptr == NULL) {
-					printf("File does not exists \n");
-				}
-				for (i=0; i<samples_per_echo; i++) {
-					fprintf(fptr, "%d\n", avr_data[i]);
-				}
-				fclose(fptr);
-			}
-		}
-	}
-#endif
 
 	// process downconverted data
 	if (process_dconv_data) {
@@ -1152,6 +1150,7 @@ void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double
 
 		}
 	}
+#endif
 
 }
 

@@ -35,7 +35,8 @@
 
 #include "hps_soc_system.h"
 
-//#define GET_RAW_DATA // get raw data and store it to the fifo. Needed for everything that's not using FPGA downconverted data
+#define GET_RAW_DATA // get raw data and store it to the fifo. Needed for everything that's not using FPGA downconverted data
+//#define GET_DCONV_DATA // get downconverted data and store it into the fifo
 
 #define ALT_AXI_FPGASLVS_OFST (0xC0000000) // axi_master
 #define HW_FPGA_AXI_SPAN (0x40000000) // Bridge span
