@@ -214,16 +214,11 @@ void write_relay_cnt (uint16_t c_shunt, uint16_t c_series, uint8_t en_mesg) {
 
 	alt_write_word( (h2p_spi_mtch_ntwrk_addr + SPI_TXDATA_offst) , ((uint32_t) cshunt_msb)<<16 | ((uint32_t) cshunt_lsb_cser_msb)<<8 | cser_lsb); // set the matching network
 	while (!(alt_read_word(h2p_spi_mtch_ntwrk_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) )); // wait for the spi command to finish
-	if (en_mesg) {
-		printf("\trelay control via spi (PCB v5 only!)...\n");
-	}
-
 }
 
 
-void write_pamprelay_cnt (uint16_t val, uint8_t en_mesg) {
-
-	alt_write_word( (h2p_spi_afe_relays_addr + SPI_TXDATA_offst) , (uint32_t) val);
+void write_pamprelay_cnt (uint32_t val, uint8_t en_mesg) {
+	alt_write_word( (h2p_spi_afe_relays_addr + SPI_TXDATA_offst) , val);
 	while (!(alt_read_word(h2p_spi_afe_relays_addr + SPI_STATUS_offst) & (1<<status_TMT_bit) )); // wait for the spi command to finish
 	if (en_mesg) {
 		printf("\tpamprelay control via spi (PCB v5 only!)...\n");
@@ -644,7 +639,7 @@ void datawrite_with_dma (uint32_t transfer_length, uint8_t en_mesg) {
 	int i_sd = 0;
 
 	fifo_to_sdram_dma_trf (h2p_dma_addr, ADC_FIFO_MEM_OUT_BASE, SDRAM_BASE, transfer_length);
-	check_dma(h2p_dma_addr, en_mesg); // wait for the dma operation to complete
+	check_dma(h2p_dma_addr, DISABLE_MESSAGE); // wait for the dma operation to complete
 
 
 	unsigned int fifo_data_read;
@@ -1168,6 +1163,10 @@ void CPMG_iterate (
 	unsigned int number_of_iteration,
 	uint32_t ph_cycl_en
 ){
+
+	// print progress
+	char print_progress = 1;
+
 	double nmr_fsm_clkfreq = 16*cpmg_freq;
 	double adc_ltc1746_freq = 4*cpmg_freq;
 
@@ -1252,8 +1251,20 @@ void CPMG_iterate (
 	for (i=0; i < dconv_size; i++) dconvi_sum[i] = 0;
 	// for (i=0; i < dconv_size; i++) dconvq_sum[i] = 0;
 
+	if (print_progress) {
+		printf("\tPROGRESS: \n");
+	}
+	float old_progress = 0;
+	float new_progress = (float)iterate/(float)number_of_iteration*100;
 	for (iterate=1; iterate<=number_of_iteration; iterate++) {
 		// printf("\n*** RUN %d ***\n",iterate);
+		if (print_progress) {
+			if (new_progress >= (old_progress+10)) {
+				printf("\t %0.1f%%\n",new_progress);
+				old_progress = new_progress;
+			}
+			new_progress = (float)iterate/(float)number_of_iteration*100;
+		}
 
 		snprintf(name, FILENAME_LENGTH,"dat_%03d",iterate);
 		snprintf(nameavg, FILENAME_LENGTH,"avg_%03d",iterate);
@@ -1272,7 +1283,7 @@ void CPMG_iterate (
 			ph_cycl_en,						//phase cycle enable/disable
 			name,							//filename for data
 			nameavg,						//filename for average data
-			ENABLE_MESSAGE
+			DISABLE_MESSAGE
 		);
 
 		// process the data
@@ -1300,6 +1311,9 @@ void CPMG_iterate (
 			// for (i=0; i<samples_per_echo*echoes_per_scan/dconv_fact; i++) dconvq_sum[i]+=dconvq[i];
 		}
 
+	}
+	if (print_progress) {
+		printf("\t 100%%\n");
 	}
 
 #ifdef GET_RAW_DATA
@@ -1562,7 +1576,7 @@ void FID_iterate (
 void noise (double cpmg_freq, long unsigned scan_spacing_us, unsigned int samples_per_echo, char * filename, uint32_t enable_message) {
 	double adc_ltc1746_freq = cpmg_freq*4;
 	double nmr_fsm_clkfreq = cpmg_freq*16;
-	uint8_t read_with_dma = 0; // else the program reads data directly from the fifo
+	uint8_t read_with_dma = 1; // else the program reads data directly from the fifo
 
 	usleep(scan_spacing_us);
 
@@ -2034,7 +2048,7 @@ int main(int argc, char * argv[]) {
     open_physical_memory_device();
     mmap_peripherals();
 
-    write_relay_cnt(cshunt, cseries, ENABLE_MESSAGE);
+    write_relay_cnt(cshunt, cseries, DISABLE_MESSAGE);
 
     munmap_peripherals();
     close_physical_memory_device();
@@ -2120,7 +2134,7 @@ int main(int argc, char * argv[]) { // [ADD DYNAMIC MALLOC LIKE IN CPMG_ITERATE 
 }
 */
 
-// CPMG Iterate (rename the output to "cpmg_iterate"). data_nowrite in CPMG_Sequence should 0
+/* CPMG Iterate (rename the output to "cpmg_iterate"). data_nowrite in CPMG_Sequence should 0
 // if CPMG Sequence is used without writing to text file, rename the output to "cpmg_iterate_direct". Set this setting in CPMG_Sequence: data_nowrite = 1
 int main(int argc, char * argv[]) {
     // printf("NMR system start\n");
@@ -2176,7 +2190,7 @@ int main(int argc, char * argv[]) {
     alt_write_word(h2p_dconv_firQ_addr, 20);
     //
 
-    /*********************************************************************
+    / *********************************************************************
 	// ************************** TEST CODE ********************************
     int64_t  datatest;
     alt_write_dword(h2p_sdram_addr, 0xAAAA88881111FFFF);
@@ -2202,7 +2216,7 @@ int main(int argc, char * argv[]) {
     datatest = alt_read_word(h2p_fifoincsr_dummy_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
     printf("%ld", datatest);
     // ******************************************************************** /
-	// ********************************************************************/
+	// ******************************************************************** /
 
     alt_write_word( h2p_adc_val_sub , 9732); // do noise measurement and all the data to get this ADC DC bias integer value
 
@@ -2236,7 +2250,7 @@ int main(int argc, char * argv[]) {
 
     return 0;
 }
-//
+*/
 
 /* FID Iterate (rename the output to "fid")
 int main(int argc, char * argv[]) {[ADD DYNAMIC MALLOC LIKE IN CPMG_ITERATE BEFORE EDITING ANYTHING!!!]
@@ -2272,14 +2286,20 @@ int main(int argc, char * argv[]) {[ADD DYNAMIC MALLOC LIKE IN CPMG_ITERATE BEFO
 }
 */
 
-/* noise Iterate (rename the output to "noise")
-int main(int argc, char * argv[]) {[ADD DYNAMIC MALLOC LIKE IN CPMG_ITERATE BEFORE EDITING ANYTHING!!!]
+// noise Iterate (rename the output to "noise")
+int main(int argc, char * argv[]) {
 
     // input parameters
     double samp_freq = atof(argv[1]);
 	long unsigned scan_spacing_us = atoi(argv[2]);
 	unsigned int samples_per_echo = atoi(argv[3]);
 	unsigned int number_of_iteration = atoi(argv[4]);
+
+	// memory allocation
+#ifdef GET_RAW_DATA
+	rddata_16 = (unsigned int*)malloc(samples_per_echo*sizeof(unsigned int)); 	// added malloc to this routine only - other routines will need to be updated when required
+	rddata = (unsigned int *)malloc(samples_per_echo/2*sizeof(unsigned int));	// petrillo 2Feb2019
+#endif
 
     open_physical_memory_device();
     mmap_peripherals();
@@ -2291,15 +2311,22 @@ int main(int argc, char * argv[]) {[ADD DYNAMIC MALLOC LIKE IN CPMG_ITERATE BEFO
     	scan_spacing_us,
     	samples_per_echo,
     	number_of_iteration,
-    	ENABLE_MESSAGE
+    	DISABLE_MESSAGE
 	);
 
 	// close_system();
     munmap_peripherals();
     close_physical_memory_device();
+
+    // free memory
+#ifdef GET_RAW_DATA
+    free(rddata_16);	//freeing up allocated memory requried for multiple calls from host
+    free(rddata);		//petrillo 2Feb2019
+#endif
+
     return 0;
 }
-*/
+//
 
 /* parameter calculator (calculate the real delay and timing based on the verilog
 int main(int argc, char * argv[]) {
