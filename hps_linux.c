@@ -692,9 +692,10 @@ void tx_sampling(double tx_freq, double samp_freq, unsigned int tx_num_of_sample
 	alt_write_word( (h2p_delay1_addr) , 100); // random safe number
 	alt_write_word( (h2p_pulse2_addr) , 100); // random safe number
 	alt_write_word( (h2p_delay2_addr) , tx_num_of_samples*4*2); // *4 is because the system clock is 4*ADC clock. *2 factor is to increase the delay_window to about 2*acquisition window for safety.
-	alt_write_word( (h2p_init_adc_delay_addr) , (unsigned int)(tx_num_of_samples/2)); // put adc acquisition window exactly at the middle of the delay windo
+	alt_write_word( (h2p_init_adc_delay_addr) , (unsigned int)(tx_num_of_samples/2)); // put adc acquisition window exactly at the middle of the delay window
 	alt_write_word( (h2p_echo_per_scan_addr) , 1 );
 	alt_write_word( (h2p_adc_samples_per_echo_addr) , tx_num_of_samples);
+
 	// set the system frequency, which is sampling frequency*4
 	Set_PLL (h2p_nmr_sys_pll_addr, 0, samp_freq*4, 0.5, DISABLE_MESSAGE);
 	Reset_PLL (h2p_ctrl_out_addr, PLL_NMR_SYS_RST_ofst, ctrl_out);
@@ -1818,14 +1819,14 @@ void tune_board (double freq) {
 	usleep(10000);										// wait for the v_varac & v_bias to settle down
 }
 
-void wobble_function (double startfreq, double stopfreq, double spacfreq, double sampfreq, unsigned int wobb_samples) {
+void tx_acq (double startfreq, double stopfreq, double spacfreq, double sampfreq, unsigned int nsamples) {
 
 	// buffer in the fpga needs to be an even number, therefore the number of samples should be even as well
-	if (wobb_samples % 2) {
-		wobb_samples++;
+	if (nsamples % 2) {
+		nsamples++;
 	}
 
-	create_measurement_folder("nmr_wobb");
+	create_measurement_folder("tx_acq");
 
 	// print matlab script to analyze datas
 	sprintf(pathname,"current_folder.txt");
@@ -1836,7 +1837,7 @@ void wobble_function (double startfreq, double stopfreq, double spacfreq, double
 	// print matlab script to analyze datas
 	sprintf(pathname,"measurement_history_matlab_script.txt");
 	fptr = fopen(pathname, "a");
-	fprintf(fptr,"wobble_plot([data_folder,'%s']);\n",foldername);
+	fprintf(fptr,"tx_acq([data_folder,'%s']);\n",foldername);
 	fclose(fptr);
 
 	// print the NMR acquired settings
@@ -1863,23 +1864,25 @@ void wobble_function (double startfreq, double stopfreq, double spacfreq, double
 	fprintf(fptr,"freqSta = %4.3f\n", startfreq);
 	fprintf(fptr,"freqSto = %4.3f\n", stopfreq);
 	fprintf(fptr,"freqSpa = %4.3f\n", spacfreq);
-	fprintf(fptr,"nSamples = %d\n", wobb_samples);
+	fprintf(fptr,"nSamples = %d\n", nsamples);
 	fprintf(fptr,"freqSamp = %4.3f\n", sampfreq);
 	fclose(fptr);
 
 
-	char * wobbname;
-	double wobbfreq = 0;
-	wobbname = (char*) malloc (100*sizeof(char));
+	char * filename;
+	double ifreq = 0;
+	filename = (char*) malloc (100*sizeof(char));
 	stopfreq += (spacfreq/2); // the (spacfreq/2) factor is to compensate double comparison error. double cannot be compared with '==' operator !
-	for (wobbfreq = startfreq; wobbfreq < stopfreq; wobbfreq += spacfreq) {
-		snprintf(wobbname, 100,"wobbdata_%4.3f",wobbfreq);
-		printf("freq: %4.3f\n", wobbfreq);
-		tx_sampling(wobbfreq, sampfreq, wobb_samples, wobbname);
+	for (ifreq = startfreq; ifreq < stopfreq; ifreq += spacfreq) {
+		snprintf(filename, 100,"tx_acq_%4.3f",ifreq);
+		// printf("freq: %4.3f\n", ifreq);
+		tx_sampling(ifreq, sampfreq, nsamples, filename);
 		usleep(100);		// this delay is necessary. If it's not here, the system will not crash but the i2c will stop working (?), and the reading length is incorrect
 	}
 
 }
+
+
 
 
 void noise_meas (unsigned int signal_path, unsigned int num_of_samples) {
@@ -2094,8 +2097,8 @@ int main(int argc, char * argv[]) { // argv cannot contain more than so many cha
 */
 
 /* Wobble (rename the output to "wobble")
-int main(int argc, char * argv[]) { // [ADD DYNAMIC MALLOC LIKE IN CPMG_ITERATE BEFORE EDITING ANYTHING!!!]
-    printf("Wobble measurement starts\n");
+int main(int argc, char * argv[]) {
+    printf("Wobble measurement starts. CAUTION: Wobble requires stable 2A power (PSU PCB doesn't support this currently).\n");
 
     // input parameters
     double startfreq = atof(argv[1]);
@@ -2107,6 +2110,9 @@ int main(int argc, char * argv[]) { // [ADD DYNAMIC MALLOC LIKE IN CPMG_ITERATE 
     mmap_peripherals();
     // init_default_system_param();
 
+    ctrl_out = alt_read_word(h2p_ctrl_out_addr);
+    alt_write_word( (h2p_ctrl_out_addr) , (ctrl_out & (~TX_SD_MSK)) ); // mask out the tx_sd signal in the fpga
+
     //WOBBLE
 	unsigned int wobb_samples 	= (unsigned int)(lround(sampfreq/spacfreq));	// the number of ADC samples taken
 
@@ -2114,13 +2120,15 @@ int main(int argc, char * argv[]) { // [ADD DYNAMIC MALLOC LIKE IN CPMG_ITERATE 
 	rddata_16 = (unsigned int*)malloc(wobb_samples*sizeof(unsigned int));
 	rddata = (unsigned int *)malloc(wobb_samples/2*sizeof(unsigned int));
 
-	wobble_function (
+	tx_acq (
 			startfreq,
 			stopfreq,
 			spacfreq,
 			sampfreq,
 			wobb_samples
 	);
+
+	alt_write_word( (h2p_ctrl_out_addr) , (ctrl_out | TX_SD_MSK) ); // re-enable the tx_sd signal in the fpga
 
 	// close_system();
     munmap_peripherals();
@@ -2134,7 +2142,52 @@ int main(int argc, char * argv[]) { // [ADD DYNAMIC MALLOC LIKE IN CPMG_ITERATE 
 }
 */
 
-/* CPMG Iterate (rename the output to "cpmg_iterate"). data_nowrite in CPMG_Sequence should 0
+/* Do pamp gain characterization (rename the output to "pamp_char")
+int main(int argc, char * argv[]) {
+    printf("Pamp characterization measurement starts\n");
+
+    // input parameters
+    double startfreq = atof(argv[1]);
+    double stopfreq = atof(argv[2]);
+	double spacfreq = atof(argv[3]);
+	double sampfreq = atof(argv[4]);
+
+    open_physical_memory_device();
+    mmap_peripherals();
+    // init_default_system_param();
+
+    ctrl_out = alt_read_word(h2p_ctrl_out_addr);
+    alt_write_word( (h2p_ctrl_out_addr) , (ctrl_out & (~TX_EN)) ); // disable the TX opamp
+
+	unsigned int samples 	= (unsigned int)(lround(sampfreq/spacfreq));	// the number of ADC samples taken
+
+	// memory allocation
+	rddata_16 = (unsigned int*)malloc(samples*sizeof(unsigned int));
+	rddata = (unsigned int *)malloc(samples/2*sizeof(unsigned int));
+
+	tx_acq (
+			startfreq,
+			stopfreq,
+			spacfreq,
+			sampfreq,
+			samples
+	);
+
+	alt_write_word( (h2p_ctrl_out_addr) , (ctrl_out | TX_EN) ); // re-enable the TX opamp (default)
+
+	// close_system();
+    munmap_peripherals();
+    close_physical_memory_device();
+
+    // free memory
+    free(rddata_16);
+    free(rddata);
+
+    return 0;
+}
+*/
+
+// CPMG Iterate (rename the output to "cpmg_iterate"). data_nowrite in CPMG_Sequence should 0
 // if CPMG Sequence is used without writing to text file, rename the output to "cpmg_iterate_direct". Set this setting in CPMG_Sequence: data_nowrite = 1
 int main(int argc, char * argv[]) {
     // printf("NMR system start\n");
@@ -2154,6 +2207,9 @@ int main(int argc, char * argv[]) {
 	uint32_t ph_cycl_en = atoi(argv[12]);
 	unsigned int pulse180_t1_int = atoi(argv[13]);
 	unsigned int delay180_t1_int = atoi(argv[14]);
+	unsigned int tx_sd_msk = atoi(argv[15]); // shutdown tx during reception
+
+
 
 	// memory allocation
 #ifdef GET_RAW_DATA
@@ -2177,6 +2233,15 @@ int main(int argc, char * argv[]) {
     // read the current ctrl_out
     ctrl_out = alt_read_word(h2p_ctrl_out_addr);
 
+    if (tx_sd_msk) { // shutdown tx opamp during reception
+    	ctrl_out = ctrl_out | TX_SD_MSK;
+    	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out );
+    }
+    else { // power up tx opamp all the way during reception
+    	ctrl_out = ctrl_out & (~TX_SD_MSK);
+    	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out );
+    }
+
     // read and write fir coefficients
     // fir registers cannot be read like a standard avalon-mm registers, it has sequence if the setting is set to read/write mode
     // look at the fir user guide to see this sequence
@@ -2190,7 +2255,7 @@ int main(int argc, char * argv[]) {
     alt_write_word(h2p_dconv_firQ_addr, 20);
     //
 
-    / *********************************************************************
+    /*********************************************************************
 	// ************************** TEST CODE ********************************
     int64_t  datatest;
     alt_write_dword(h2p_sdram_addr, 0xAAAA88881111FFFF);
@@ -2216,7 +2281,7 @@ int main(int argc, char * argv[]) {
     datatest = alt_read_word(h2p_fifoincsr_dummy_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
     printf("%ld", datatest);
     // ******************************************************************** /
-	// ******************************************************************** /
+	// ********************************************************************/
 
     alt_write_word( h2p_adc_val_sub , 9732); // do noise measurement and all the data to get this ADC DC bias integer value
 
@@ -2236,6 +2301,10 @@ int main(int argc, char * argv[]) {
 		ph_cycl_en
 	);
 
+	// reset the
+	ctrl_out = ctrl_out | TX_EN;
+	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out ); // shutdown the TX opamp during reception (default)
+
 	// close_system();
     munmap_peripherals();
     close_physical_memory_device();
@@ -2250,7 +2319,7 @@ int main(int argc, char * argv[]) {
 
     return 0;
 }
-*/
+//
 
 /* FID Iterate (rename the output to "fid")
 int main(int argc, char * argv[]) {[ADD DYNAMIC MALLOC LIKE IN CPMG_ITERATE BEFORE EDITING ANYTHING!!!]
@@ -2286,7 +2355,7 @@ int main(int argc, char * argv[]) {[ADD DYNAMIC MALLOC LIKE IN CPMG_ITERATE BEFO
 }
 */
 
-// noise Iterate (rename the output to "noise")
+/* noise Iterate (rename the output to "noise")
 int main(int argc, char * argv[]) {
 
     // input parameters
@@ -2326,7 +2395,7 @@ int main(int argc, char * argv[]) {
 
     return 0;
 }
-//
+*/
 
 /* parameter calculator (calculate the real delay and timing based on the verilog
 int main(int argc, char * argv[]) {
