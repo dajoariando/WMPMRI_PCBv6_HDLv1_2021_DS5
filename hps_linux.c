@@ -118,14 +118,14 @@ void mmap_fpga_peripherals() {
 	h2p_switches_addr				= h2f_axi_master + SWITCHES_BASE;
 
 	// dummy code
-	h2p_dmadummy_addr				= h2f_lw_axi_master + DMA_DUMMY_BASE;
-	h2p_fifoin_dummy_addr			= h2f_axi_master + FIFO_DUMMY_IN_BASE;
-	h2p_fifoout_dummy_addr			= h2f_axi_master + FIFO_DUMMY_OUT_BASE;
-	h2p_fifoincsr_dummy_addr		= h2f_axi_master + FIFO_DUMMY_IN_CSR_BASE;
+	//h2p_dmadummy_addr				= h2f_lw_axi_master + DMA_DUMMY_BASE;
+	//h2p_fifoin_dummy_addr			= h2f_axi_master + FIFO_DUMMY_IN_BASE;
+	//h2p_fifoout_dummy_addr			= h2f_axi_master + FIFO_DUMMY_OUT_BASE;
+	//h2p_fifoincsr_dummy_addr		= h2f_axi_master + FIFO_DUMMY_IN_CSR_BASE;
 
-	h2p_fifoin64dummy_addr			= h2f_axi_master + FIFO_DUMMY64_IN_IN_BASE;
-	h2p_fifoout64dummy_addr			= h2f_axi_master + FIFO_DUMMY64_OUT_OUT_BASE;
-	h2p_fifoout64csrdummy_addr		= h2f_axi_master + FIFO_DUMMY64_OUT_IN_CSR_BASE;
+	//h2p_fifoin64dummy_addr			= h2f_axi_master + FIFO_DUMMY64_IN_IN_BASE;
+	//h2p_fifoout64dummy_addr			= h2f_axi_master + FIFO_DUMMY64_OUT_OUT_BASE;
+	//h2p_fifoout64csrdummy_addr		= h2f_axi_master + FIFO_DUMMY64_OUT_IN_CSR_BASE;
 
 
 }
@@ -151,43 +151,11 @@ void mmap_peripherals() {
     mmap_fpga_peripherals();
 }
 
-
 void munmap_peripherals() {
     munmap_hps_peripherals();
     munmap_fpga_peripherals();
 }
 
-void setup_hps_gpio() {
-    // Initialize the HPS PIO controller:
-    //     Set the direction of the HPS_LED GPIO bit to "output"
-    //     Set the direction of the HPS_KEY_N GPIO bit to "input"
-    void *hps_gpio_direction = ALT_GPIO_SWPORTA_DDR_ADDR(hps_gpio);
-    alt_setbits_word(hps_gpio_direction, ALT_GPIO_PIN_OUTPUT << HPS_LED_PORT_BIT);
-    alt_setbits_word(hps_gpio_direction, ALT_GPIO_PIN_INPUT << HPS_KEY_N_PORT_BIT);
-}
-
-void setup_fpga_leds() {
-    // Switch on first LED only
-    alt_write_word(h2p_led_addr, 0xF0);
-}
-
-void handle_hps_led() {
-    void *hps_gpio_data = ALT_GPIO_SWPORTA_DR_ADDR(hps_gpio);
-    void *hps_gpio_port = ALT_GPIO_EXT_PORTA_ADDR(hps_gpio);
-
-    uint32_t hps_gpio_input = alt_read_word(hps_gpio_port) & HPS_KEY_N_MASK;
-
-    // HPS_KEY_N is active-low
-    bool toggle_hps_led = (~hps_gpio_input & HPS_KEY_N_MASK);
-
-    if (toggle_hps_led) {
-        uint32_t hps_led_value = alt_read_word(hps_gpio_data);
-        hps_led_value >>= HPS_LED_PORT_BIT;
-        hps_led_value = !hps_led_value;
-        hps_led_value <<= HPS_LED_PORT_BIT;
-        alt_replbits_word(hps_gpio_data, HPS_LED_MASK, hps_led_value);
-    }
-}
 
 void create_measurement_folder(char * foldertype) {
 	time_t t = time(NULL);
@@ -639,7 +607,7 @@ void datawrite_with_dma (uint32_t transfer_length, uint8_t en_mesg) {
 	int i_sd = 0;
 
 	fifo_to_sdram_dma_trf (h2p_dma_addr, ADC_FIFO_MEM_OUT_BASE, SDRAM_BASE, transfer_length);
-	check_dma(h2p_dma_addr, DISABLE_MESSAGE); // wait for the dma operation to complete
+	check_dma(h2p_dma_addr, ENABLE_MESSAGE); // wait for the dma operation to complete
 
 
 	unsigned int fifo_data_read;
@@ -786,102 +754,6 @@ void tx_sampling(double tx_freq, double samp_freq, unsigned int tx_num_of_sample
 }
 
 
-void noise_sampling (unsigned char signal_path, unsigned int num_of_samples, char * filename) {
-	// signal path: the signal path used with the ADC, can be normal signal path or S11 signal path
-
-	// read the current ctrl_out
-	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
-
-	alt_write_word( (h2p_init_adc_delay_addr) , 0 );	// don't need adc_delay for sampling the data
-	alt_write_word( (h2p_adc_samples_per_echo_addr) , num_of_samples ); // the number of samples taken for tx sampling
-
-	// the bigger is the gain at this stage, the bigger is the impedance. The impedance should be ideally 50ohms which is achieved by using rx_gain between 0x00 and 0x07
-// 	write_i2c_rx_gain (0x00 & 0x0F);	//// OBSOLETE. Gain is not controlled using this function anymores
-
-	// KEEP THIS CODE IF YOU DON'T USE PYTHON
-	//if (signal_path == SIG_NORM_PATH) {
-		// activate normal signal path for the receiver
-	//	write_i2c_int_cnt (ENABLE, RX_IN_SEL_1_msk, DISABLE_MESSAGE);
-	//	write_i2c_int_cnt (DISABLE, RX_IN_SEL_2_msk, DISABLE_MESSAGE);
-
-	//	printf("normal signal path is connected...\n");
-	//}
-	//else if (signal_path == SIG_S11_PATH) {
-	//	// activate signal_coup path for the receiver
-	//	write_i2c_int_cnt (DISABLE, RX_IN_SEL_1_msk, DISABLE_MESSAGE);
-	//	write_i2c_int_cnt (ENABLE, RX_IN_SEL_2_msk, DISABLE_MESSAGE);
-	//	printf("S11 signal path is connected...");
-	//}
-	//else {
-	//	printf("signal path is not defined...");
-	//}
-	//usleep(100);
-
-	// reset the selected ADC (ADC reset is omitted in new design)
-	// alt_write_word( (h2p_ctrl_out_addr) , ctrl_out | (0x01<<ADC_LTC1746_RST_ofst) );
-	// usleep(10);
-	// alt_write_word( (h2p_ctrl_out_addr) , ctrl_out & ~(0x01<<ADC_LTC1746_RST_ofst) );
-	// usleep(10);
-
-	// reset buffer
-	ctrl_out |= (0x01<<ADC_FIFO_RST_ofst);
-	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out );
-	usleep(10);
-	ctrl_out &= ~(0x01<<ADC_FIFO_RST_ofst);
-	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out );
-	usleep(10);
-
-	// send ADC start pulse signal
-	ctrl_out |= ACTIVATE_ADC_AVLN; // this signal is connected to pulser, so it needs to be turned of as quickly as possible after it is turned on
-	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out );
-	ctrl_out &= ~ACTIVATE_ADC_AVLN; // turning off the ADC start signal
-	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out );
-	usleep(10000); // delay for data acquisition
-
-#ifdef GET_RAW_DATA
-	uint32_t fifo_mem_level = alt_read_word(h2p_adc_fifo_status_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
-	for (i=0; fifo_mem_level>0; i++) {
-		rddata[i] = alt_read_word(h2p_adc_fifo_addr);
-
-		fifo_mem_level--;
-		if (fifo_mem_level == 0) {
-			fifo_mem_level = alt_read_word(h2p_adc_fifo_status_addr+ALTERA_AVALON_FIFO_LEVEL_REG);
-		}
-	}
-	// usleep(100);
-	// fifo_mem_level = alt_read_word(h2p_adc_fifo_status_addr+ALTERA_AVALON_FIFO_LEVEL_REG);
-
-	printf("i: %ld",i);
-
-	if (i*2 == num_of_samples) { // if the amount of data captured matched with the amount of data being ordered, then continue the process. if not, then don't process the datas (requesting empty data from the fifo will cause the FPGA to crash, so this one is to avoid that)
-		// printf("number of captured data vs requested data : MATCHED\n");
-
-		j=0;
-		// FIFO is 32-bit, while 1-sample is only 16-bit. FIFO organize this automatically.
-		for(i=0; i <  ( (long)num_of_samples>>1 ); i++) {
-			rddata_16[j++] = (rddata[i] & 0x3FFF);		// 14 significant bit
-			rddata_16[j++] = ((rddata[i]>>16)&0x3FFF);	// 14 significant bit
-		}
-
-		// write the raw data from adc to a file
-		sprintf(pathname,"%s/%s",foldername,filename);	// put the data into the data folder
-		fptr = fopen(pathname, "w");
-		if (fptr == NULL) {
-			printf("File does not exists \n");
-		}
-		for(i=0; i < ( (long)num_of_samples ); i++) {
-			fprintf(fptr, "%d\n", rddata_16[i]);
-		}
-		fclose(fptr);
-
-	}
-	else { // if the amount of data captured didn't match the amount of data being ordered, then something's going on with the acquisition
-		printf("number of data captured and data order : NOT MATCHED\nReconfigure the FPGA immediately\n");
-	}
-
-#endif
-
-}
 
 // duty cycle is not functioning anymore
 void CPMG_Sequence (double cpmg_freq, double pulse1_us, double pulse2_us, double pulse1_dtcl, double pulse2_dtcl, double echo_spacing_us, long unsigned scan_spacing_us, unsigned int samples_per_echo, unsigned int echoes_per_scan, double init_adc_delay_compensation, uint32_t ph_cycl_en, char * filename, char * avgname, uint32_t enable_message) {
@@ -1588,7 +1460,7 @@ void noise (double cpmg_freq, long unsigned scan_spacing_us, unsigned int sample
 	uint32_t fifo_mem_level; // the fill level of fifo memory
 
 	unsigned int delay2_int = (unsigned int) (round(samples_per_echo*(nmr_fsm_clkfreq/adc_ltc1746_freq)*10));
-	unsigned int fixed_init_adc_delay = 2; // set to the minimum delay values, which is 2 (limited by HDL structure).
+	unsigned int fixed_init_adc_delay = 3; // set to the minimum delay values, which is 3 (limited by HDL structure).
 	unsigned int fixed_echo_per_scan = 1; // it must be 1, otherwise the HDL will go to undefined state.
 	double init_delay_inherent; // inherehent delay factor from the HDL structure. The minimum is 2.25 no matter how small the delay is set. Look ERRATA
 	if (fixed_init_adc_delay <= 2) {
@@ -1734,7 +1606,7 @@ void noise_iterate (
 	}
 
 	double init_adc_delay_compensation = init_delay_inherent /adc_ltc1746_freq;
-	unsigned int delay2_int = (unsigned int) (samples_per_echo*(nmr_fsm_clkfreq/adc_ltc1746_freq)*10);	// the number of delay after 180 deg pulse. It is simply samples_per_echo multiplied by (nmr_fsm_clkfreq/adc_ltc1746_freq) factor, as the delay2_int is counted by nmr_fsm_clkfreq, not by adc_ltc1746_freq. It is also multiplied by a constant 2 as safety factor to make sure the ADC acquisition is inside FSMSTAT (refer to HDL) 'on' window.
+	unsigned int delay2_int = (unsigned int) (samples_per_echo*(nmr_fsm_clkfreq/adc_ltc1746_freq)*100);	// the number of delay after 180 deg pulse. It is simply samples_per_echo multiplied by (nmr_fsm_clkfreq/adc_ltc1746_freq) factor, as the delay2_int is counted by nmr_fsm_clkfreq, not by adc_ltc1746_freq. It is also multiplied by a constant 2 as safety factor to make sure the ADC acquisition is inside FSMSTAT (refer to HDL) 'on' window.
 
 	// read the current ctrl_out
 	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
@@ -1885,46 +1757,8 @@ void tx_acq (double startfreq, double stopfreq, double spacfreq, double sampfreq
 
 
 
-void noise_meas (unsigned int signal_path, unsigned int num_of_samples) {
 
-	create_measurement_folder("noise");
 
-	// print matlab script to analyze datas
-	sprintf(pathname,"measurement_history_matlab_script.txt");
-	fptr = fopen(pathname, "a");
-	fprintf(fptr,"noise_plot([data_folder,'%s']);\n",foldername);
-	fclose(fptr);
-
-	// print the NMR acquired settings
-	sprintf(pathname,"%s/matlab_settings.txt",foldername);	// put the data into the data folder
-	fptr = fopen(pathname, "a");
-	fprintf(fptr,"%d\n", num_of_samples);
-	fclose(fptr);
-
-	sprintf(pathname,"%s/readable_settings.txt",foldername);	// put the data into the data folder
-	fptr = fopen(pathname, "a");
-	fprintf(fptr,"Number of samples: %d\n", num_of_samples);
-	fclose(fptr);
-
-	char * noisename; noisename = (char*) malloc (100*sizeof(char));
-	snprintf(noisename, 100,"noisedata.o");
-	noise_sampling (signal_path, num_of_samples, noisename);
-}
-
-void test_leds_and_switches () {
-    // initialize gpio for the hps
-    setup_hps_gpio();
-
-    // switch on first led
-    setup_fpga_leds();
-
-    while (true) {
-        handle_hps_led();
-        // handle_fpga_leds(); LED is omitted in new design
-        printf("%d\n",alt_read_word(fpga_switches));
-        usleep(ALT_MICROSECS_IN_A_SEC / 10);
-    }
-}
 
 void init_default_system_param() {
 
@@ -2311,7 +2145,7 @@ int main(int argc, char * argv[]) {
 
     // free memory
 #ifdef GET_RAW_DATA
-    free(rddata_16);	//freeing up allocated memory requried for multiple calls from host
+    free(rddata_16);	//freeing up allocated memory required for multiple calls from host
     free(rddata);		//petrillo 2Feb2019
 #endif
     free(dconvi);
