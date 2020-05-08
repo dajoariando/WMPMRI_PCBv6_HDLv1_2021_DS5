@@ -607,7 +607,7 @@ void datawrite_with_dma (uint32_t transfer_length, uint8_t en_mesg) {
 	int i_sd = 0;
 
 	fifo_to_sdram_dma_trf (h2p_dma_addr, ADC_FIFO_MEM_OUT_BASE, SDRAM_BASE, transfer_length);
-	check_dma(h2p_dma_addr, ENABLE_MESSAGE); // wait for the dma operation to complete
+	check_dma(h2p_dma_addr, DISABLE_MESSAGE); // wait for the dma operation to complete. POSSIBLE_ISSUES: DEPENDING ON THE LENGTH OF CPMG, THIS SCRIPT MIGHT BREAK IF ENABLE_MESSAGE
 
 
 	unsigned int fifo_data_read;
@@ -698,6 +698,7 @@ void tx_sampling(double tx_freq, double samp_freq, unsigned int tx_num_of_sample
 
 	// start the state machine to capture data
 	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out | (0x01<<FSM_START_ofst) );
+	usleep(10);
 	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out & ~(0x01<<FSM_START_ofst) );
 	// wait until fsm stops
 	while (alt_read_word(h2p_ctrl_in_addr) & (0x01<<NMR_SEQ_run_ofst) );
@@ -1449,7 +1450,7 @@ void FID_iterate (
 void noise (double cpmg_freq, long unsigned scan_spacing_us, unsigned int samples_per_echo, char * filename, uint32_t enable_message) {
 	double adc_ltc1746_freq = cpmg_freq*4;
 	double nmr_fsm_clkfreq = cpmg_freq*16;
-	uint8_t read_with_dma = 1; // else the program reads data directly from the fifo
+	uint8_t read_with_dma = 0; // else the program reads data directly from the fifo
 
 	usleep(scan_spacing_us);
 
@@ -1460,7 +1461,7 @@ void noise (double cpmg_freq, long unsigned scan_spacing_us, unsigned int sample
 	uint32_t fifo_mem_level; // the fill level of fifo memory
 
 	unsigned int delay2_int = (unsigned int) (round(samples_per_echo*(nmr_fsm_clkfreq/adc_ltc1746_freq)*10));
-	unsigned int fixed_init_adc_delay = 3; // set to the minimum delay values, which is 3 (limited by HDL structure).
+	unsigned int fixed_init_adc_delay = (delay2_int>>4); // set to the minimum delay values, which is 3 (limited by HDL structure). Or set to the middle of the acquisition to avoid additional noise coming due to switching control signal at the beginning. It is simply (delay2_int/4) to get 1/4 length of the window and another 1/4 because adc_clock is 1/4 the control clock.
 	unsigned int fixed_echo_per_scan = 1; // it must be 1, otherwise the HDL will go to undefined state.
 	double init_delay_inherent; // inherehent delay factor from the HDL structure. The minimum is 2.25 no matter how small the delay is set. Look ERRATA
 	if (fixed_init_adc_delay <= 2) {
@@ -1521,7 +1522,6 @@ void noise (double cpmg_freq, long unsigned scan_spacing_us, unsigned int sample
 	// alt_write_word( (h2p_nmr_pll_rst_dly_addr) , 1000000 );	// set the amount of delay for pll reset (with 50MHz system clock, every tick means 20ns) -> default: 100000
 	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
 	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out | (0x01<<FSM_START_ofst) );
-	usleep(10);
 	alt_write_word( (h2p_ctrl_out_addr) , ctrl_out & ~(0x01<<FSM_START_ofst) );
 	// shift the pll phase accordingly
 	// Set_DPS (h2p_nmr_pll_addr, 0, 0, DISABLE_MESSAGE);
@@ -1606,7 +1606,7 @@ void noise_iterate (
 	}
 
 	double init_adc_delay_compensation = init_delay_inherent /adc_ltc1746_freq;
-	unsigned int delay2_int = (unsigned int) (samples_per_echo*(nmr_fsm_clkfreq/adc_ltc1746_freq)*100);	// the number of delay after 180 deg pulse. It is simply samples_per_echo multiplied by (nmr_fsm_clkfreq/adc_ltc1746_freq) factor, as the delay2_int is counted by nmr_fsm_clkfreq, not by adc_ltc1746_freq. It is also multiplied by a constant 2 as safety factor to make sure the ADC acquisition is inside FSMSTAT (refer to HDL) 'on' window.
+	unsigned int delay2_int = (unsigned int) (samples_per_echo*(nmr_fsm_clkfreq/adc_ltc1746_freq)*10);	// the number of delay after 180 deg pulse. It is simply samples_per_echo multiplied by (nmr_fsm_clkfreq/adc_ltc1746_freq) factor, as the delay2_int is counted by nmr_fsm_clkfreq, not by adc_ltc1746_freq. It is also multiplied by a constant 2 as safety factor to make sure the ADC acquisition is inside FSMSTAT (refer to HDL) 'on' window.
 
 	// read the current ctrl_out
 	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
@@ -1976,7 +1976,7 @@ int main(int argc, char * argv[]) {
 }
 */
 
-/* Do pamp gain characterization (rename the output to "pamp_char")
+// Do pamp gain characterization (rename the output to "pamp_char")
 int main(int argc, char * argv[]) {
     printf("Pamp characterization measurement starts\n");
 
@@ -2019,9 +2019,9 @@ int main(int argc, char * argv[]) {
 
     return 0;
 }
-*/
+//
 
-// CPMG Iterate (rename the output to "cpmg_iterate"). data_nowrite in CPMG_Sequence should 0
+/* CPMG Iterate (rename the output to "cpmg_iterate"). data_nowrite in CPMG_Sequence should 0
 // if CPMG Sequence is used without writing to text file, rename the output to "cpmg_iterate_direct". Set this setting in CPMG_Sequence: data_nowrite = 1
 int main(int argc, char * argv[]) {
     // printf("NMR system start\n");
@@ -2115,7 +2115,7 @@ int main(int argc, char * argv[]) {
     datatest = alt_read_word(h2p_fifoincsr_dummy_addr+ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
     printf("%ld", datatest);
     // ******************************************************************** /
-	// ********************************************************************/
+	// ******************************************************************** /
 
     alt_write_word( h2p_adc_val_sub , 9732); // do noise measurement and all the data to get this ADC DC bias integer value
 
@@ -2153,7 +2153,7 @@ int main(int argc, char * argv[]) {
 
     return 0;
 }
-//
+*/
 
 /* FID Iterate (rename the output to "fid")
 int main(int argc, char * argv[]) {[ADD DYNAMIC MALLOC LIKE IN CPMG_ITERATE BEFORE EDITING ANYTHING!!!]
