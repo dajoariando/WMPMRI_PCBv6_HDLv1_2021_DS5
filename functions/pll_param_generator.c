@@ -160,6 +160,8 @@ void Set_C (void *addr, uint32_t * pll_param, uint32_t counter_select, double du
 }
 
 void Set_DPS (void *addr, uint32_t counter_select, uint32_t phase, uint32_t enable_message) { // phase is 0 to 360
+	// Resetting the PLL will erase the change made with Set_DPS. So change the phase after reset.
+
 	double DPS;
 	double c_counter = Read_C_Counter(addr,counter_select);		// read the current C Counter value
 	uint32_t DPS_direction = 1;

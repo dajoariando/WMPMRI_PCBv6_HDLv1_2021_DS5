@@ -32,6 +32,7 @@
 #include "functions/pll_param_generator.h"
 #include "functions/reconfig_functions.h"
 #include "functions/tca9555_driver.h"
+#include "functions/common_functions.h"
 
 #include "hps_soc_system.h"
 
@@ -41,22 +42,10 @@
 #define ALT_AXI_FPGASLVS_OFST (0xC0000000) // axi_master
 #define HW_FPGA_AXI_SPAN (0x40000000) // Bridge span
 #define HW_FPGA_AXI_MASK ( HW_FPGA_AXI_SPAN - 1 )
-
-// |=============|==========|==============|==========|
-// | Signal Name | HPS GPIO | Register/bit | Function |
-// |=============|==========|==============|==========|
-// |   HPS_LED   |  GPIO53  |   GPIO1[24]  |    I/O   |
-// |=============|==========|==============|==========|
 #define HPS_LED_IDX      (ALT_GPIO_1BIT_53)                      // GPIO53
 #define HPS_LED_PORT     (alt_gpio_bit_to_pid(HPS_LED_IDX))      // ALT_GPIO_PORTB
 #define HPS_LED_PORT_BIT (alt_gpio_bit_to_port_pin(HPS_LED_IDX)) // 24 (from GPIO1[24])
 #define HPS_LED_MASK     (1 << HPS_LED_PORT_BIT)
-
-// |=============|==========|==============|==========|
-// | Signal Name | HPS GPIO | Register/bit | Function |
-// |=============|==========|==============|==========|
-// |  HPS_KEY_N  |  GPIO54  |   GPIO1[25]  |    I/O   |
-// |=============|==========|==============|==========|
 #define HPS_KEY_N_IDX      (ALT_GPIO_1BIT_54)                        // GPIO54
 #define HPS_KEY_N_PORT     (alt_gpio_bit_to_pid(HPS_KEY_N_IDX))      // ALT_GPIO_PORTB
 #define HPS_KEY_N_PORT_BIT (alt_gpio_bit_to_port_pin(HPS_KEY_N_IDX)) // 25 (from GPIO1[25])
@@ -73,7 +62,6 @@ size_t hps_gpio_ofst = ALT_GPIO1_OFST;
 void   *h2f_lw_axi_master     = NULL;
 size_t h2f_lw_axi_master_span = ALT_LWFPGASLVS_UB_ADDR - ALT_LWFPGASLVS_LB_ADDR + 1;
 size_t h2f_lw_axi_master_ofst = ALT_LWFPGASLVS_OFST;
-
 
 void *h2f_axi_master = NULL;
 size_t h2f_axi_master_span = HW_FPGA_AXI_SPAN;
@@ -100,10 +88,6 @@ volatile unsigned int *h2p_dac_grad_addr		= NULL; // gradient driver dac (spi)
 volatile unsigned int *h2p_spi_mtch_ntwrk_addr	= NULL; // spi for matching network control (PCB v4 onwards)
 volatile unsigned int *h2p_spi_afe_relays_addr	= NULL; // spi for afe relays or preamp
 // void *h2p_i2c_ext_addr		= NULL; // gpio for i2c (used for relay control through io expander chip TCA9555PWR, and also rx gain selector)
-
-
-// pll reconfig address for NMR transmitter
-// void *h2p_nmr_pll_addr 							= NULL; // PLL reconfiguration control for the NMR transmitter
 
 // pll reconfig address for the nmr system
 void *h2p_nmr_sys_pll_addr					= NULL; // nmr system pll reconfiguration
@@ -199,8 +183,8 @@ void tx_sampling(double tx_freq, double sampfreq, unsigned int samples_per_echo,
 
 // global variables
 FILE	*fptr;
-long i;
-long j;
+unsigned int i;
+unsigned int j;
 
 #ifdef GET_RAW_DATA
 unsigned int *rddata;
