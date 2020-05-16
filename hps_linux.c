@@ -1505,13 +1505,13 @@ void noise_iterate(double cpmg_freq, long unsigned scan_spacing_us,
 	unsigned int delay2_int = (unsigned int) (samples_per_echo
 			* (nmr_fsm_clkfreq / adc_ltc1746_freq) * 10); // the number of delay after 180 deg pulse. It is simply samples_per_echo multiplied by (nmr_fsm_clkfreq/adc_ltc1746_freq) factor, as the delay2_int is counted by nmr_fsm_clkfreq, not by adc_ltc1746_freq. It is also multiplied by a constant 2 as safety factor to make sure the ADC acquisition is inside FSMSTAT (refer to HDL) 'on' window.
 
-// read the current ctrl_out
+	// read the current ctrl_out
 	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
 
 	create_measurement_folder("noise");
-// printf("Approximated measurement time : %.2f mins\n",( scan_spacing_us*(double)number_of_iteration)*1e-6/60);
+	// printf("Approximated measurement time : %.2f mins\n",( scan_spacing_us*(double)number_of_iteration)*1e-6/60);
 
-// print general measurement settings
+	// print general measurement settings
 	sprintf(pathname, "%s/acqu.par", foldername);
 	fptr = fopen(pathname, "a");
 	fprintf(fptr, "b1Freq = %4.3f\n", cpmg_freq);
@@ -1529,13 +1529,13 @@ void noise_iterate(double cpmg_freq, long unsigned scan_spacing_us,
 	fprintf(fptr, "dwellTime = %4.3f\n", 1 / adc_ltc1746_freq);
 	fclose (fptr);
 
-// print matlab script to analyze datas
+	// print matlab script to analyze datas
 	sprintf(pathname, "measurement_history_matlab_script.txt");
 	fptr = fopen(pathname, "a");
 	fprintf(fptr, "fid_iterate([data_folder,'%s']);\n", foldername);
 	fclose(fptr);
 
-// print matlab script to analyze datas
+	// print matlab script to analyze datas
 	sprintf(pathname, "current_folder.txt");
 	fptr = fopen(pathname, "w");
 	fprintf(fptr, "%s\n", foldername);
@@ -2114,90 +2114,52 @@ void close_system()
  }
  */
 
-// FID Iterate (rename the output to "fid")
-int main(int argc, char * argv[])
-{
-
-	// input parameters
-	double cpmg_freq = atof(argv[1]);
-	double pulse2_us = atof(argv[2]);
-	double pulse2_dtcl = atof(argv[3]);
-	long unsigned scan_spacing_us = atoi(argv[4]);
-	unsigned int samples_per_echo = atoi(argv[5]);
-	unsigned int number_of_iteration = atoi(argv[6]);
-	unsigned int tx_opa_sd = atoi(argv[7]);
-
-	// memory allocation
-#ifdef GET_RAW_DATA
-	rddata_16 = (unsigned int*)malloc(samples_per_echo*sizeof(unsigned int));
-	rddata = (unsigned int *)malloc(samples_per_echo/2*sizeof(unsigned int));
-#endif
-
-	open_physical_memory_device();
-	mmap_peripherals();
-	//init_default_system_param();
-
-	// enable the TX opamp during reception (default), will be controlled using the tx_opa_sd instead
-	ctrl_out = ctrl_out | TX_OPA_EN;
-	alt_write_word((h2p_ctrl_out_addr), ctrl_out);
-
-	if (tx_opa_sd)
-	{ // shutdown tx opamp during reception
-		ctrl_out = ctrl_out | TX_OPA_SD_MSK;
-		alt_write_word((h2p_ctrl_out_addr), ctrl_out);
-	}
-	else
-	{ // power up tx opamp all the way during reception
-		ctrl_out = ctrl_out & (~TX_OPA_SD_MSK);
-		alt_write_word((h2p_ctrl_out_addr), ctrl_out);
-	}
-
-	alt_write_word(h2p_adc_val_sub, 9732); // do noise measurement and all the data to get this ADC DC bias integer value
-
-	FID_iterate(cpmg_freq, pulse2_us, pulse2_dtcl, scan_spacing_us,
-			samples_per_echo, number_of_iteration, ENABLE_MESSAGE);
-
-	// shutdown tx opamp during receptin (default)
-	ctrl_out = ctrl_out | TX_OPA_SD_MSK;
-	alt_write_word((h2p_ctrl_out_addr), ctrl_out);
-
-	// close_system();
-	munmap_peripherals();
-	close_physical_memory_device();
-
-	// free memory
-#ifdef GET_RAW_DATA
-	free(rddata_16);
-	free(rddata);
-#endif
-
-	return 0;
-}
-//
-
-/* noise Iterate (rename the output to "noise")
+/* FID Iterate (rename the output to "fid")
  int main(int argc, char * argv[])
  {
 
  // input parameters
- double samp_freq = atof(argv[1]);
- long unsigned scan_spacing_us = atoi(argv[2]);
- unsigned int samples_per_echo = atoi(argv[3]);
- unsigned int number_of_iteration = atoi(argv[4]);
+ double cpmg_freq = atof(argv[1]);
+ double pulse2_us = atof(argv[2]);
+ double pulse2_dtcl = atof(argv[3]);
+ long unsigned scan_spacing_us = atoi(argv[4]);
+ unsigned int samples_per_echo = atoi(argv[5]);
+ unsigned int number_of_iteration = atoi(argv[6]);
+ unsigned int tx_opa_sd = atoi(argv[7]);
 
  // memory allocation
  #ifdef GET_RAW_DATA
- rddata_16 = (unsigned int*)malloc(samples_per_echo*sizeof(unsigned int)); // added malloc to this routine only - other routines will need to be updated when required
- rddata = (unsigned int *)malloc(samples_per_echo/2*sizeof(unsigned int));// petrillo 2Feb2019
+ rddata_16 = (unsigned int*)malloc(samples_per_echo*sizeof(unsigned int));
+ rddata = (unsigned int *)malloc(samples_per_echo/2*sizeof(unsigned int));
  #endif
 
  open_physical_memory_device();
  mmap_peripherals();
- init_default_system_param();
+ //init_default_system_param();
 
- double cpmg_freq = samp_freq / 4; // the building block that's used is still nmr cpmg, so the sampling frequency is fixed to 4*cpmg_frequency
- noise_iterate(cpmg_freq, scan_spacing_us, samples_per_echo,
- number_of_iteration, DISABLE_MESSAGE);
+ // enable the TX opamp during reception (default), will be controlled using the tx_opa_sd instead
+ ctrl_out = ctrl_out | TX_OPA_EN;
+ alt_write_word((h2p_ctrl_out_addr), ctrl_out);
+
+ if (tx_opa_sd)
+ { // shutdown tx opamp during reception
+ ctrl_out = ctrl_out | TX_OPA_SD_MSK;
+ alt_write_word((h2p_ctrl_out_addr), ctrl_out);
+ }
+ else
+ { // power up tx opamp all the way during reception
+ ctrl_out = ctrl_out & (~TX_OPA_SD_MSK);
+ alt_write_word((h2p_ctrl_out_addr), ctrl_out);
+ }
+
+ alt_write_word(h2p_adc_val_sub, 9732); // do noise measurement and all the data to get this ADC DC bias integer value
+
+ FID_iterate(cpmg_freq, pulse2_us, pulse2_dtcl, scan_spacing_us,
+ samples_per_echo, number_of_iteration, ENABLE_MESSAGE);
+
+ // shutdown tx opamp during receptin (default)
+ ctrl_out = ctrl_out | TX_OPA_SD_MSK;
+ alt_write_word((h2p_ctrl_out_addr), ctrl_out);
 
  // close_system();
  munmap_peripherals();
@@ -2205,13 +2167,51 @@ int main(int argc, char * argv[])
 
  // free memory
  #ifdef GET_RAW_DATA
- free(rddata_16);	//freeing up allocated memory requried for multiple calls from host
- free(rddata);//petrillo 2Feb2019
+ free(rddata_16);
+ free(rddata);
  #endif
 
  return 0;
  }
  */
+
+// noise Iterate (rename the output to "noise")
+int main(int argc, char * argv[])
+{
+
+	// input parameters
+	double samp_freq = atof(argv[1]);
+	long unsigned scan_spacing_us = atoi(argv[2]);
+	unsigned int samples_per_echo = atoi(argv[3]);
+	unsigned int number_of_iteration = atoi(argv[4]);
+
+	// memory allocation
+#ifdef GET_RAW_DATA
+	rddata_16 = (unsigned int*)malloc(samples_per_echo*sizeof(unsigned int)); // added malloc to this routine only - other routines will need to be updated when required
+	rddata = (unsigned int *)malloc(samples_per_echo/2*sizeof(unsigned int));// petrillo 2Feb2019
+#endif
+
+	open_physical_memory_device();
+	mmap_peripherals();
+	init_default_system_param();
+
+	double cpmg_freq = samp_freq / 4; // the building block that's used is still nmr cpmg, so the sampling frequency is fixed to 4*cpmg_frequency
+	noise_iterate(cpmg_freq, scan_spacing_us, samples_per_echo,
+			number_of_iteration, DISABLE_MESSAGE);
+
+	// close_system();
+	munmap_peripherals();
+	close_physical_memory_device();
+
+	// free memory
+#ifdef GET_RAW_DATA
+	free(rddata_16);	//freeing up allocated memory requried for multiple calls from host
+	free(rddata);//petrillo 2Feb2019
+#endif
+
+	return 0;
+}
+//
 
 /* parameter calculator (calculate the real delay and timing based on the verilog
  int main(int argc, char * argv[]) {
