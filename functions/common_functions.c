@@ -20,7 +20,7 @@
 #include "AlteraIP/altera_avalon_fifo_regs.h"
 
 unsigned int rd_FIFO(volatile unsigned int *FIFO_status_addr,
-		void *FIFO_data_addr, unsigned int * buf32)
+		void *FIFO_data_addr, int * buf32)
 {
 
 	// local variables
@@ -51,16 +51,15 @@ unsigned int rd_FIFO(volatile unsigned int *FIFO_status_addr,
 	return i;
 }
 
-void buf32_to_buf16(unsigned int * buf32, unsigned int * buf16,
-		unsigned int length)
+void buf32_to_buf16(int * buf32, unsigned int * buf16, unsigned int length)
 {
 	unsigned int i, j;
 
 	j = 0;
 	for (i = 0; i < (length); i++)
 	{
-		buf16[j++] = (buf32[i] & 0x3FFF);		// 14 significant bit
-		buf16[j++] = ((buf32[i] >> 16) & 0x3FFF);	// 14 significant bit
+		buf16[j++] = ((unsigned int) buf32[i] & 0x3FFF); // 14 significant bit
+		buf16[j++] = ((unsigned int) (buf32[i] >> 16) & 0x3FFF);// 14 significant bit
 	}
 
 }
