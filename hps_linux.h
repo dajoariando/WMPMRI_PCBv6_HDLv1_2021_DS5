@@ -182,7 +182,7 @@ unsigned int *rddata_16;
 #endif
 
 #ifdef GET_DCONV_DATA
-int *dconvi;
+int *dconv;
 #endif
 
 char foldername[50]; // variable to store folder name of the measurement data

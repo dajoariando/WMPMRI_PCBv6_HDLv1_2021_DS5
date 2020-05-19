@@ -798,20 +798,23 @@ void data_dconv_write_with_dma(uint32_t transfer_length, uint8_t en_mesg)
 	int i_sd = 0;
 	int fifo_data_read;
 
+	reset_dma(h2p_dconvi_dma_addr);
+	fifo_to_sdram_dma_trf (h2p_dconvi_dma_addr, DCONV_FIFO_MEM_OUT_BASE, SDRAM_BASE, transfer_length); // add data_len offset due to raw data before. (*4 factor is due to byte-addressing)
+
 	// process dconvi
 	check_dma(h2p_dconvi_dma_addr, DISABLE_MESSAGE);// check and wait until dma is done
 	for (i_sd = 0; i_sd < transfer_length; i_sd++)
 	{
 		fifo_data_read = alt_read_word(h2p_sdram_addr + i_sd);
-		dconvi[i_sd] = fifo_data_read;
+		dconv[i_sd] = fifo_data_read;
 	}
 
 }
 #endif
 
 void runFSM(double nmr_fsm_clkfreq, uint32_t ph_cycl_en,
-		unsigned int acq_length, char * filename, uint8_t wr_to_file,
-		uint8_t store_to_sdram_noread, uint8_t rd_sdram_OR_rd_fifo)
+		unsigned int acq_length, char * filename, uint8_t sav_indv_scan,
+		uint8_t store_to_sdram_noread, uint8_t rd_sdram_OR_n_rd_fifo)
 {
 
 	// read settings
@@ -830,13 +833,13 @@ void runFSM(double nmr_fsm_clkfreq, uint32_t ph_cycl_en,
 	// cycle phase for CPMG measurement (in the case of fix phase_cycle state, this code will just generate the negation of it.
 	if (ph_cycl_en == ENABLE)
 	{
-		if (ctrl_out & (0x01 << PHASE_CYCLING_ofst))
+		if (ctrl_out & PHASE_CYCLING)
 		{
-			ctrl_out &= ~(0x01 << PHASE_CYCLING_ofst);
+			ctrl_out &= ~PHASE_CYCLING;
 		}
 		else
 		{
-			ctrl_out |= (0x01 << PHASE_CYCLING_ofst);
+			ctrl_out |= PHASE_CYCLING;
 		}
 		alt_write_word((h2p_ctrl_out_addr), ctrl_out);
 		usleep(10);
@@ -869,7 +872,7 @@ void runFSM(double nmr_fsm_clkfreq, uint32_t ph_cycl_en,
 	}
 	else
 	{ // write data to text via c-programming
-		if (rd_sdram_OR_rd_fifo)
+		if (rd_sdram_OR_n_rd_fifo)
 		{ // if read with dma is intended.
 			datawrite_with_dma(acq_length/2,DISABLE_MESSAGE);
 			while ( alt_read_word(h2p_ctrl_in_addr) & (0x01<<NMR_SEQ_run_ofst) );// wait until fsm stops, just in case the DMA is too fast.
@@ -887,28 +890,26 @@ void runFSM(double nmr_fsm_clkfreq, uint32_t ph_cycl_en,
 			buf32_to_buf16 (rddata, rddata_16, acq_length>>1 ); // transfer data from 32-bit buffer to 16-bit buffer
 		}
 
-		if (wr_to_file)
+		if (sav_indv_scan)
 		{ // put the individual scan data into a file
 			sprintf(pathname,"%s/%s",foldername,filename);// create a filename
-			wr_File (pathname, acq_length, rddata_16);// write the data to the filename
+			wr_File (pathname, acq_length, (int*)rddata_16);// write the data to the filename
+			printf("rddata_16 is changed to int* in this line, check if this is a correct implementation!!!");
 		}
 	}
 #endif
 
 #ifdef GET_DCONV_DATA
-	uint8_t process_dconv_data = 1; // obtain data from downconversion fifo (requires implementation in FPGA as well)
 
-	if (rd_sdram_OR_rd_fifo)
-	{
-		reset_dma(h2p_dconvi_dma_addr);
-		fifo_to_sdram_dma_trf (h2p_dconvi_dma_addr, DCONV_FIFO_MEM_OUT_BASE, SDRAM_BASE, acq_length); // add data_len offset due to raw data before. (*4 factor is due to byte-addressing)
-		check_dma(h2p_dconvi_dma_addr, DISABLE_MESSAGE);// enable to check how many data is requested by the DMA.
+	if (store_to_sdram_noread)
+	{ // do not write data to text with C programming: external mechanism should be implemented
+		fifo_to_sdram_dma_trf (h2p_dconvi_dma_addr, DCONV_FIFO_MEM_OUT_BASE, SDRAM_BASE, acq_length);// add data_len offset due to raw data before. (*4 factor is due to byte-addressing)
+		//while ( alt_read_word(h2p_ctrl_in_addr) & (0x01<<NMR_SEQ_run_ofst) ); // might not be needed as the system will wait until data is available anyway
 	}
 
-	// process downconverted data
-	if (process_dconv_data)
+	else // process downconverted data
 	{
-		if (rd_sdram_OR_rd_fifo)
+		if (rd_sdram_OR_n_rd_fifo)
 		{ // read from sdram
 			data_dconv_write_with_dma (acq_length, DISABLE_MESSAGE);
 		}
@@ -916,11 +917,19 @@ void runFSM(double nmr_fsm_clkfreq, uint32_t ph_cycl_en,
 		{ // read directly from fifo
 			while ( alt_read_word(h2p_ctrl_in_addr) & (0x01<<NMR_SEQ_run_ofst) );// wait until the scan is done
 			usleep(300);
-			unsigned int datacaptured = rd_FIFO (h2p_dconvi_csr_addr, h2p_dconvi_addr, dconvi);
+			unsigned int datacaptured = rd_FIFO (h2p_dconvi_csr_addr, h2p_dconvi_addr, dconv);
 			if (datacaptured != acq_length)
 			{
-				printf("[ERROR] number of data in the FIFO (%d) and data ordered (%d): NOT MATCHED\nData are flushed!\nReconfigure the FPGA immediately\n", datacaptured<<1, acq_length);
+				printf("[ERROR] number of data in the FIFO (%d) and data ordered (%d): NOT MATCHED\nData are flushed!\nReconfigure the FPGA immediately\n", datacaptured, acq_length);
 				return;
+			}
+		}
+
+		if (sav_indv_scan)
+		{ // put the individual scan data into an individual file
+			{ // put the individual scan data into a file
+				sprintf(pathname,"%s/%s",foldername,filename);// create a filename
+				wr_File (pathname, acq_length, dconv);// write the data to the filename
 			}
 		}
 	}
@@ -1042,12 +1051,12 @@ void CPMG_Sequence(double cpmg_freq, double pulse1_us, double pulse2_us,
 
 #ifdef GET_RAW_DATA
 	runFSM(nmr_fsm_clkfreq, ph_cycl_en, samples_per_echo * echoes_per_scan,
-			filename, NO_WR_TO_FILE, RD_DATA_VIA_SDRAM_OR_FIFO, RD_SDRAM);
+			filename, NO_SAV_INDV_SCAN, RD_DATA_VIA_SDRAM_OR_FIFO, RD_SDRAM);
 #endif
 #ifdef GET_DCONV_DATA
 	unsigned int dconv_data_len = samples_per_echo * echoes_per_scan * 2 / dconv_fact; // *2 is because the IQ data is combined into 1 stream
 	runFSM(nmr_fsm_clkfreq, ph_cycl_en, dconv_data_len,
-			filename, NO_WR_TO_FILE, RD_DATA_VIA_SDRAM_OR_FIFO, RD_SDRAM);
+			filename, SAV_INDV_SCAN, RD_DATA_VIA_SDRAM_OR_FIFO, RD_SDRAM);
 #endif
 
 }
@@ -1145,7 +1154,7 @@ void CPMG_iterate(double cpmg_freq, double pulse1_us, double pulse2_us,
 
 // amplitude sum
 #ifdef GET_RAW_DATA
-	int Asum[samples_per_echo*echoes_per_scan];
+	double Asum[samples_per_echo*echoes_per_scan];
 	for (i=0; i<samples_per_echo*echoes_per_scan; i++) Asum[i] = 0;
 #endif
 
@@ -1153,8 +1162,8 @@ void CPMG_iterate(double cpmg_freq, double pulse1_us, double pulse2_us,
 // downconverted sum
 	int dconv_size = samples_per_echo*echoes_per_scan/dconv_fact*2;
 // printf ("dconv_size = %d\n", dconv_size); // print the buffer size
-	int dconvi_sum[dconv_size];
-	for (i=0; i < dconv_size; i++) dconvi_sum[i] = 0;
+	double dconv_sum[dconv_size];
+	for (i=0; i < dconv_size; i++) dconv_sum[i] = 0;
 #endif
 
 	if (progress_verbose)
@@ -1193,19 +1202,19 @@ void CPMG_iterate(double cpmg_freq, double pulse1_us, double pulse2_us,
 			if (iterate % 2 == 0)
 			{
 				for (i = 0; i < samples_per_echo * echoes_per_scan; i++)
-				Asum[i] -= rddata_16[i];
+				Asum[i] -= (double)rddata_16[i]/(double)number_of_iteration;
 			}
 			else
 			{
 				for (i = 0; i < samples_per_echo * echoes_per_scan; i++)
-				Asum[i] += rddata_16[i];
+				Asum[i] += (double)rddata_16[i]/(double)number_of_iteration;
 
 			}
 		}
 		else
 		{
 			for (i = 0; i < samples_per_echo * echoes_per_scan; i++)
-			Asum[i] += rddata_16[i];
+			Asum[i] += (double)rddata_16[i]/(double)number_of_iteration;
 		}
 
 #endif
@@ -1218,21 +1227,21 @@ void CPMG_iterate(double cpmg_freq, double pulse1_us, double pulse2_us,
 				for (i = 0;
 						i < dconv_size;
 						i++)
-				dconvi_sum[i] -= dconvi[i];
+				dconv_sum[i] -= (double)dconv[i] / (double)number_of_iteration;
 			}
 			else
 			{
 				for (i = 0;
 						i < dconv_size;
 						i++)
-				dconvi_sum[i] += dconvi[i];
+				dconv_sum[i] += (double)dconv[i] / (double)number_of_iteration;
 			}
 		}
 		else
 		{
 			for (i = 0; i < dconv_size;
 					i++)
-			dconvi_sum[i] += dconvi[i];
+			dconv_sum[i] += (double)dconv[i] / (double)number_of_iteration;
 		}
 #endif
 	}
@@ -1242,15 +1251,15 @@ void CPMG_iterate(double cpmg_freq, double pulse1_us, double pulse2_us,
 	sprintf(pathname, "%s/%s", foldername, "asum");// put the data into the data folder
 	fptr = fopen(pathname, "w");
 	for (i = 0; i < samples_per_echo * echoes_per_scan; i++)
-	fprintf(fptr, "%d\n", Asum[i]);
+	fprintf(fptr, "%d\n", (int)Asum[i]);
 	fclose(fptr);
 #endif
 
 #ifdef GET_DCONV_DATA
 	// write downconverted data sum in-phase
-	sprintf(pathname, "%s/%s", foldername, "dconvi");// put the data into the data folder
+	sprintf(pathname, "%s/%s", foldername, "dconv");// put the data into the data folder
 	fptr = fopen(pathname, "w");
-	for (i = 0; i < dconv_size; i++) fprintf(fptr, "%d\n", dconvi_sum[i]);
+	for (i = 0; i < dconv_size; i++) fprintf(fptr, "%d\n", (int)dconv_sum[i]);
 	fclose(fptr);
 #endif
 
@@ -1276,10 +1285,6 @@ void FID(double cpmg_freq, double pulse2_us, double pulse2_dtcl,
 
 // read the current ctrl_out
 	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
-
-// set a fix phase cycle state
-	ctrl_out &= ~(0x01 << PHASE_CYCLING_ofst);
-	alt_write_word((h2p_ctrl_out_addr), ctrl_out);
 
 	unsigned int pulse2_int =
 			(unsigned int) (round(pulse2_us * nmr_fsm_clkfreq));// the number of 180 deg pulse in the multiplication of cpmg pulse period (discrete value, no continuous number supported)
@@ -1325,7 +1330,7 @@ void FID(double cpmg_freq, double pulse2_us, double pulse2_dtcl,
 	}
 
 	runFSM(nmr_fsm_clkfreq, ph_cycl_en, samples_per_echo, filename,
-			NO_WR_TO_FILE, RD_DATA_VIA_SDRAM_OR_FIFO, RD_SDRAM);
+			NO_SAV_INDV_SCAN, RD_DATA_VIA_SDRAM_OR_FIFO, RD_SDRAM);
 
 }
 
@@ -1451,10 +1456,6 @@ void noise(double cpmg_freq, long unsigned scan_spacing_us,
 	// read the current ctrl_out
 	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
 
-	// set a fix phase cycle state
-	ctrl_out &= ~(0x01 << PHASE_CYCLING_ofst);
-	alt_write_word((h2p_ctrl_out_addr), ctrl_out);
-
 	unsigned int delay2_int = (unsigned int) (round(
 			samples_per_echo * (nmr_fsm_clkfreq / adc_ltc1746_freq) * 10));
 	unsigned int fixed_init_adc_delay = (delay2_int >> 4); // set to the minimum delay values, which is 3 (limited by HDL structure). Or set to the middle of the acquisition to avoid additional noise coming due to switching control signal at the beginning. It is simply (delay2_int/4) to get 1/4 length of the window and another 1/4 because adc_clock is 1/4 the control clock.
@@ -1495,7 +1496,7 @@ void noise(double cpmg_freq, long unsigned scan_spacing_us,
 	}
 
 	runFSM(nmr_fsm_clkfreq, ph_cycl_en, samples_per_echo, filename,
-			NO_WR_TO_FILE, RD_DATA_VIA_SDRAM_OR_FIFO, RD_SDRAM);
+			NO_SAV_INDV_SCAN, RD_DATA_VIA_SDRAM_OR_FIFO, RD_SDRAM);
 
 }
 
@@ -1643,8 +1644,8 @@ void tx_sampling(double tx_freq, double samp_freq,
 	alt_write_word((h2p_ctrl_out_addr), ctrl_out);
 	usleep(10);
 
-	runFSM(samp_freq * 4, ph_cycl_en, tx_num_of_samples, filename, WR_TO_FILE,
-			RD_DATA_VIA_SDRAM_OR_FIFO, RD_SDRAM);
+	runFSM(samp_freq * 4, ph_cycl_en, tx_num_of_samples, filename,
+			SAV_INDV_SCAN, RD_DATA_VIA_SDRAM_OR_FIFO, RD_SDRAM);
 
 // disable PLL_analyzer path and enable the default RF gate path
 	ctrl_out |= NMR_CLK_GATE_AVLN;
@@ -2001,8 +2002,10 @@ void close_system()
  }
  */
 
-// CPMG Iterate (rename the output to "cpmg_iterate"). data_nowrite in CPMG_Sequence should 0
-// if CPMG Sequence is used without writing to text file, rename the output to "cpmg_iterate_direct". Set this setting in CPMG_Sequence: data_nowrite = 1
+// CPMG Iterate
+// rename the output to "cpmg_iterate_raw" and define GET_RAW_DATA to get raw data.
+// rename the output to "cpmg_iterate_dconv" and define GET_RAW_DCONV to get downconverted data.
+// if CPMG Sequence is used without writing to text file, rename the output to "cpmg_iterate_direct". Use STORE_TO_SDRAM_NOREAD in the cpmg_Sequence
 int main(int argc, char * argv[])
 {
 	// this program can only be run with the power supply 'on' that enables ADC circuitry and clock.
@@ -2030,10 +2033,10 @@ int main(int argc, char * argv[])
 	// memory allocation
 #ifdef GET_RAW_DATA
 	rddata_16 = (unsigned int*)malloc(samples_per_echo*echoes_per_scan*sizeof(unsigned int)); // added malloc to this routine only - other routines will need to be updated when required
-	rddata = (unsigned int *)malloc(samples_per_echo*echoes_per_scan/2*sizeof(unsigned int));// petrillo 2Feb2019
+	rddata = (int *)malloc(samples_per_echo*echoes_per_scan/2*sizeof(int));// petrillo 2Feb2019
 #endif
 #ifdef GET_DCONV_DATA
-	dconvi = (int *) malloc(
+	dconv = (int *) malloc(
 			samples_per_echo * echoes_per_scan * sizeof(int) / dconv_fact * 2); // multiply 2 because of IQ data
 #endif
 
@@ -2112,7 +2115,7 @@ int main(int argc, char * argv[])
 	 // ******************************************************************** /
 	 // ********************************************************************/
 
-	alt_write_word(h2p_adc_val_sub, 9732);// do noise measurement and all the data to get this ADC DC bias integer value
+	alt_write_word(h2p_adc_val_sub, 9275);// do noise measurement and all the data to get this ADC DC bias integer value
 
 	// printf("cpmg_freq = %0.3f\n",cpmg_freq);
 	CPMG_iterate(cpmg_freq, pulse1_us, pulse2_us, pulse1_dtcl, pulse2_dtcl,
@@ -2129,7 +2132,7 @@ int main(int argc, char * argv[])
 	free(rddata);//petrillo 2Feb2019
 #endif
 #ifdef GET_DCONV_DATA
-	free (dconvi);
+	free (dconv);
 #endif
 
 	return 0;

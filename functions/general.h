@@ -121,14 +121,14 @@
 #define ENABLE 1
 #define DISABLE 0
 
-#define WR_TO_FILE 1
-#define NO_WR_TO_FILE 0
+#define SAV_INDV_SCAN 1		// save invidual scan to a file
+#define NO_SAV_INDV_SCAN 0	// don't save individual scan to a file
 
-#define STORE_TO_SDRAM_NOREAD 1
-#define RD_DATA_VIA_SDRAM_OR_FIFO 0
+#define STORE_TO_SDRAM_NOREAD 1			// store to sdram, but don't store it in a file
+#define RD_DATA_VIA_SDRAM_OR_FIFO 0		// store to a file, either via SDRAM read or FIFO read
 
-#define RD_SDRAM 1
-#define RD_FIFO 0
+#define RD_SDRAM 1						// read via SDRAM, must be used with RD_DATA_VIA_SDRAM_OR_FIFO
+#define RD_FIFO 0						// read via FIFO, must be used with RD_DATA_VIA_SDRAM_OR_FIFO
 
 // RX signal path
 #define SIG_NORM_PATH	0
