@@ -1285,7 +1285,7 @@ void CPMG_iterate(double cpmg_freq, double pulse1_us, double pulse2_us,
 	fptr = fopen(pathname, "w");
 	if (binary_OR_ascii)
 	{ // binary output
-		fwrite(&Asum, samples_per_echo * echoes_per_scan*sizeof(float), samples_per_echo * echoes_per_scan, fptr);
+		fwrite(&Asum, sizeof(float), samples_per_echo * echoes_per_scan, fptr);
 	}
 	else
 	{
