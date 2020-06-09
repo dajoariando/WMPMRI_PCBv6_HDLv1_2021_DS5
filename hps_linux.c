@@ -1971,6 +1971,8 @@ void close_system()
  int main(int argc, char * argv[])
  {
 
+ // the wobble function startfreq is minimum 1 MHz, otherwise the TX PLL (h2p_analyzer_pll_addr) won't lock.
+
  // input parameters
  double startfreq = atof(argv[1]);
  double stopfreq = atof(argv[2]);
