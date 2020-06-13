@@ -135,3 +135,6 @@
 #define SIG_S11_PATH	1
 
 #define SEL_ADC1746		1
+
+#define SAV_BINARY		1 // save data in binary format
+#define SAV_ASCII		0 // save data in ascii format

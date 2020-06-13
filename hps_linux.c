@@ -768,26 +768,28 @@ void reset_dma(volatile unsigned int * dma_addr)
 #ifdef GET_RAW_DATA
 void datawrite_with_dma (uint32_t transfer_length, uint8_t en_mesg)
 {
-	int i_sd = 0;
-
 	fifo_to_sdram_dma_trf (h2p_dma_addr, ADC_FIFO_MEM_OUT_BASE, SDRAM_BASE, transfer_length);
 	check_dma(h2p_dma_addr, DISABLE_MESSAGE); // wait for the dma operation to complete. POSSIBLE_ISSUES: DEPENDING ON THE LENGTH OF CPMG, THIS SCRIPT MIGHT BREAK IF ENABLE_MESSAGE
 
-	unsigned int fifo_data_read;
+	/*
+	 int i_sd = 0;
+	 unsigned int fifo_data_read;
+	 for (i_sd=0; i_sd < transfer_length; i_sd++)
+	 {
+	 fifo_data_read = alt_read_word(h2p_sdram_addr+i_sd);
 
-	for (i_sd=0; i_sd < transfer_length; i_sd++)
-	{
-		fifo_data_read = alt_read_word(h2p_sdram_addr+i_sd);
+	 // the data is 2 symbols-per-beat in the fifo.
+	 // And the symbol arrangement can be found in Altera Embedded Peripherals pdf.
+	 // The 32-bit data per beat is transfered from FIFO to the SDRAM with the same
+	 // format so this formatting should follow the FIFO format.
 
-		// the data is 2 symbols-per-beat in the fifo.
-		// And the symbol arrangement can be found in Altera Embedded Peripherals pdf.
-		// The 32-bit data per beat is transfered from FIFO to the SDRAM with the same
-		// format so this formatting should follow the FIFO format.
+	 rddata_16[i_sd*2] = fifo_data_read & 0x3FFF;
+	 rddata_16[i_sd*2+1] = (fifo_data_read>>16) & 0x3FFF;
+	 }
+	 */
 
-		rddata_16[i_sd*2] = fifo_data_read & 0x3FFF;
-		rddata_16[i_sd*2+1] = (fifo_data_read>>16) & 0x3FFF;
-
-	}
+	memcpy(rddata,(int*)h2p_sdram_addr,transfer_length*sizeof(int));
+	buf32_to_buf16 (rddata, rddata_16, transfer_length );// transfer data from 32-bit buffer to 16-bit buffer
 
 }
 #endif
@@ -894,9 +896,15 @@ void runFSM(double nmr_fsm_clkfreq, uint32_t ph_cycl_en,
 
 		if (sav_indv_scan)
 		{ // put the individual scan data into a file
+
+			// save as binary file
 			sprintf(pathname,"%s/%s",foldername,filename);// create a filename
-			wr_File (pathname, acq_length, (int*)rddata_16);// write the data to the filename
-			// printf("rddata_16 is changed to int* in this line, check if this is a correct implementation!!!");
+			wr_File (pathname, acq_length, rddata, SAV_BINARY);// write the data to the filename
+
+			// save as ascii file
+			// sprintf(pathname,"%s/%s_ascii",foldername,filename);// create a filename
+			// wr_File (pathname, acq_length, (int*)rddata_16, SAV_ASCII);// write the data to the filename
+			// printf("rddata_16 datatype above is changed to int*, check if this is a correct implementation!!!");
 		}
 	}
 #endif
@@ -1288,7 +1296,7 @@ void CPMG_iterate(double cpmg_freq, double pulse1_us, double pulse2_us,
 		fwrite(&Asum, sizeof(float), samples_per_echo * echoes_per_scan, fptr);
 	}
 	else
-	{
+	{ // ascii output
 		for (i = 0; i < samples_per_echo * echoes_per_scan; i++)
 		fprintf(fptr, "%d\n", (int)Asum[i]);
 	}
@@ -1689,7 +1697,7 @@ void tx_sampling(double tx_freq, double samp_freq,
 // enable transmit on acquisition
 	ctrl_out |= PULSE_ON_RX;
 	alt_write_word((h2p_ctrl_out_addr), ctrl_out);
-	usleep(10);
+	usleep(1);
 
 	runFSM(samp_freq * 4, ph_cycl_en, tx_num_of_samples, filename,
 			SAV_INDV_SCAN, RD_DATA_VIA_SDRAM_OR_FIFO, RD_SDRAM);
@@ -1701,7 +1709,7 @@ void tx_sampling(double tx_freq, double samp_freq,
 // disable transmit on acquisition
 	ctrl_out &= ~(PULSE_ON_RX);
 	alt_write_word((h2p_ctrl_out_addr), ctrl_out);
-	usleep(10);
+	usleep(1);
 
 // KEEP THIS CODE AND ENABLE IT IF YOU USE C-ONLY, OPPOSED TO USING PYTHON
 // activate normal signal path for the receiver
@@ -1795,7 +1803,7 @@ void tx_acq(double startfreq, double stopfreq, double spacfreq, double sampfreq,
 		snprintf(filename, 100, "tx_acq_%4.3f", ifreq);
 // printf("freq: %4.3f\n", ifreq);
 		tx_sampling(ifreq, sampfreq, nsamples, filename);
-		usleep(100); // this delay is necessary. If it's not here, the system will not crash but the i2c will stop working (?), and the reading length is incorrect
+		usleep(1); // this delay is necessary. If it's not here, the system will not crash but the i2c will stop working (?), and the reading length is incorrect
 	}
 
 }
@@ -1967,47 +1975,47 @@ void close_system()
  }
  */
 
-/* Wobble (rename the output to "wobble")
- int main(int argc, char * argv[])
- {
+// Wobble (rename the output to "wobble")
+int main(int argc, char * argv[])
+{
 
- // the wobble function startfreq is minimum 1 MHz, otherwise the TX PLL (h2p_analyzer_pll_addr) won't lock.
+	// the wobble function startfreq is minimum 1 MHz, otherwise the TX PLL (h2p_analyzer_pll_addr) won't lock.
 
- // input parameters
- double startfreq = atof(argv[1]);
- double stopfreq = atof(argv[2]);
- double spacfreq = atof(argv[3]);
- double sampfreq = atof(argv[4]);
+	// input parameters
+	double startfreq = atof(argv[1]);
+	double stopfreq = atof(argv[2]);
+	double spacfreq = atof(argv[3]);
+	double sampfreq = atof(argv[4]);
 
- open_physical_memory_device();
- mmap_peripherals();
- // init_default_system_param();
+	open_physical_memory_device();
+	mmap_peripherals();
+	// init_default_system_param();
 
- ctrl_out = alt_read_word(h2p_ctrl_out_addr);
- alt_write_word((h2p_ctrl_out_addr), (ctrl_out & (~TX_OPA_SD_MSK))); // mask out the TX_OPA_SD signal in the fpga (disable TX Opamp shutdown during reception)
+	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
+	alt_write_word((h2p_ctrl_out_addr), (ctrl_out & (~TX_OPA_SD_MSK))); // mask out the TX_OPA_SD signal in the fpga (disable TX Opamp shutdown during reception)
 
- //WOBBLE
- unsigned int wobb_samples = (unsigned int) (lround(sampfreq / spacfreq)); // the number of ADC samples taken
+	//WOBBLE
+	unsigned int wobb_samples = (unsigned int) (lround(sampfreq / spacfreq)); // the number of ADC samples taken
 
- // memory allocation
- rddata_16 = (unsigned int*) malloc(wobb_samples * sizeof(unsigned int));
- rddata = (int *) malloc(wobb_samples / 2 * sizeof(int));
+	// memory allocation
+	rddata_16 = (unsigned int*) malloc(wobb_samples * sizeof(unsigned int));
+	rddata = (int *) malloc(wobb_samples / 2 * sizeof(int));
 
- tx_acq(startfreq, stopfreq, spacfreq, sampfreq, wobb_samples);
+	tx_acq(startfreq, stopfreq, spacfreq, sampfreq, wobb_samples);
 
- alt_write_word((h2p_ctrl_out_addr), (ctrl_out | TX_OPA_SD_MSK)); // re-enable the TX_OPA_SD signal in the fpga
+	alt_write_word((h2p_ctrl_out_addr), (ctrl_out | TX_OPA_SD_MSK)); // re-enable the TX_OPA_SD signal in the fpga
 
- // close_system();
- munmap_peripherals();
- close_physical_memory_device();
+	// close_system();
+	munmap_peripherals();
+	close_physical_memory_device();
 
- // free memory
- free (rddata_16);
- free (rddata);
+	// free memory
+	free (rddata_16);
+	free (rddata);
 
- return 0;
- }
- */
+	return 0;
+}
+//
 
 /* Preamp gain characterization (rename the output to "pamp_char")
  int main(int argc, char * argv[])
@@ -2049,142 +2057,142 @@ void close_system()
  }
  */
 
-// CPMG Iterate
-// rename the output to "cpmg_iterate_raw" and define GET_RAW_DATA to get raw data.
-// rename the output to "cpmg_iterate_dconv" and define GET_RAW_DCONV to get downconverted data.
-// if CPMG Sequence is used without writing to text file, rename the output to "cpmg_iterate_direct". Use STORE_TO_SDRAM_NOREAD in the cpmg_Sequence
-int main(int argc, char * argv[])
-{
-// this program can only be run with the power supply 'on' that enables ADC circuitry and clock.
-// To turn on the power supply, you can use the Python code and add breakpoint before CPMG_sequence().
-// printf("NMR system start\n");
+/* CPMG Iterate
+ // rename the output to "cpmg_iterate_raw" and define GET_RAW_DATA to get raw data.
+ // rename the output to "cpmg_iterate_dconv" and define GET_RAW_DCONV to get downconverted data.
+ // if CPMG Sequence is used without writing to text file, rename the output to "cpmg_iterate_direct". Use STORE_TO_SDRAM_NOREAD in the cpmg_Sequence
+ int main(int argc, char * argv[])
+ {
+ // this program can only be run with the power supply 'on' that enables ADC circuitry and clock.
+ // To turn on the power supply, you can use the Python code and add breakpoint before CPMG_sequence().
+ // printf("NMR system start\n");
 
-// input parameters
-	double cpmg_freq = atof(argv[1]);
-	double pulse1_us = atof(argv[2]);
-	double pulse2_us = atof(argv[3]);
-	double pulse1_dtcl = atof(argv[4]);
-	double pulse2_dtcl = atof(argv[5]);
-	double echo_spacing_us = atof(argv[6]);
-	long unsigned scan_spacing_us = atoi(argv[7]);
-	unsigned int samples_per_echo = atoi(argv[8]);
-	unsigned int echoes_per_scan = atoi(argv[9]);
-	double init_adc_delay_compensation = atof(argv[10]);
-	unsigned int number_of_iteration = atoi(argv[11]);
-	uint32_t ph_cycl_en = atoi(argv[12]);
-	unsigned int pulse180_t1_int = atoi(argv[13]);
-	unsigned int delay180_t1_int = atoi(argv[14]);
-	unsigned int tx_opa_sd = atoi(argv[15]);	// shutdown tx during reception
-	dconv_fact = atoi(argv[16]);	// down conversion factor
+ // input parameters
+ double cpmg_freq = atof(argv[1]);
+ double pulse1_us = atof(argv[2]);
+ double pulse2_us = atof(argv[3]);
+ double pulse1_dtcl = atof(argv[4]);
+ double pulse2_dtcl = atof(argv[5]);
+ double echo_spacing_us = atof(argv[6]);
+ long unsigned scan_spacing_us = atoi(argv[7]);
+ unsigned int samples_per_echo = atoi(argv[8]);
+ unsigned int echoes_per_scan = atoi(argv[9]);
+ double init_adc_delay_compensation = atof(argv[10]);
+ unsigned int number_of_iteration = atoi(argv[11]);
+ uint32_t ph_cycl_en = atoi(argv[12]);
+ unsigned int pulse180_t1_int = atoi(argv[13]);
+ unsigned int delay180_t1_int = atoi(argv[14]);
+ unsigned int tx_opa_sd = atoi(argv[15]);	// shutdown tx during reception
+ dconv_fact = atoi(argv[16]);	// down conversion factor
 
-// memory allocation
-#ifdef GET_RAW_DATA
-	rddata_16 = (unsigned int*)malloc(samples_per_echo*echoes_per_scan*sizeof(unsigned int)); // added malloc to this routine only - other routines will need to be updated when required
-	rddata = (int *)malloc(samples_per_echo*echoes_per_scan/2*sizeof(int));// petrillo 2Feb2019
-#endif
-#ifdef GET_DCONV_DATA
-	dconv = (int *) malloc(
-			samples_per_echo * echoes_per_scan * sizeof(int) / dconv_fact * 2); // multiply 2 because of IQ data
-#endif
+ // memory allocation
+ #ifdef GET_RAW_DATA
+ rddata_16 = (unsigned int*)malloc(samples_per_echo*echoes_per_scan*sizeof(unsigned int)); // added malloc to this routine only - other routines will need to be updated when required
+ rddata = (int *)malloc(samples_per_echo*echoes_per_scan/2*sizeof(int));// petrillo 2Feb2019
+ #endif
+ #ifdef GET_DCONV_DATA
+ dconv = (int *) malloc(
+ samples_per_echo * echoes_per_scan * sizeof(int) / dconv_fact * 2); // multiply 2 because of IQ data
+ #endif
 
-	open_physical_memory_device();
-	mmap_peripherals();
-// init_default_system_param();
+ open_physical_memory_device();
+ mmap_peripherals();
+ // init_default_system_param();
 
-// write t1-IR measurement parameters (put both to 0 if IR is not desired)
-	alt_write_word(h2p_t1_pulse, pulse180_t1_int);
-	alt_write_word(h2p_t1_delay, delay180_t1_int);
+ // write t1-IR measurement parameters (put both to 0 if IR is not desired)
+ alt_write_word(h2p_t1_pulse, pulse180_t1_int);
+ alt_write_word(h2p_t1_delay, delay180_t1_int);
 
-// write downconversion factor
-	alt_write_word(h2p_dec_fact_addr, dconv_fact);
+ // write downconversion factor
+ alt_write_word(h2p_dec_fact_addr, dconv_fact);
 
-// read the current ctrl_out
-	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
+ // read the current ctrl_out
+ ctrl_out = alt_read_word(h2p_ctrl_out_addr);
 
-// enable the TX opamp during reception, will be controlled using the tx_opa_sd instead
-	ctrl_out = ctrl_out | TX_OPA_EN;
-	alt_write_word((h2p_ctrl_out_addr), ctrl_out);
+ // enable the TX opamp during reception, will be controlled using the tx_opa_sd instead
+ ctrl_out = ctrl_out | TX_OPA_EN;
+ alt_write_word((h2p_ctrl_out_addr), ctrl_out);
 
-	if (tx_opa_sd)
-	{ // shutdown tx opamp during reception
-		ctrl_out = ctrl_out | TX_OPA_SD_MSK;
-		alt_write_word((h2p_ctrl_out_addr), ctrl_out);
-	}
-	else
-	{ // power up tx opamp all the way during reception
-		ctrl_out = ctrl_out & (~TX_OPA_SD_MSK);
-		alt_write_word((h2p_ctrl_out_addr), ctrl_out);
-	}
+ if (tx_opa_sd)
+ { // shutdown tx opamp during reception
+ ctrl_out = ctrl_out | TX_OPA_SD_MSK;
+ alt_write_word((h2p_ctrl_out_addr), ctrl_out);
+ }
+ else
+ { // power up tx opamp all the way during reception
+ ctrl_out = ctrl_out & (~TX_OPA_SD_MSK);
+ alt_write_word((h2p_ctrl_out_addr), ctrl_out);
+ }
 
-// read and write fir coefficients
-// fir registers cannot be read like a standard avalon-mm registers, it has sequence if the setting is set to read/write mode
-// look at the fir user guide to see this sequence
-// however, it can be set just to read mode or write mode and it supposed to work with avalon-mm
-	ctrl_out &= ~(DCONV_FIR_RST_RESET_N | DCONV_FIR_Q_RST_RESET_N);	// reset the FIR filter
-	alt_write_word(h2p_ctrl_out_addr, ctrl_out);	// write down the control
-	usleep(1);
-	ctrl_out |= (DCONV_FIR_RST_RESET_N | DCONV_FIR_Q_RST_RESET_N);// enable the FIR filter
-	alt_write_word(h2p_ctrl_out_addr, ctrl_out);	// write down the control
-	usleep(1);
-// alt_write_word(h2p_dconv_firQ_addr, 20);
-//
+ // read and write fir coefficients
+ // fir registers cannot be read like a standard avalon-mm registers, it has sequence if the setting is set to read/write mode
+ // look at the fir user guide to see this sequence
+ // however, it can be set just to read mode or write mode and it supposed to work with avalon-mm
+ ctrl_out &= ~(DCONV_FIR_RST_RESET_N | DCONV_FIR_Q_RST_RESET_N);	// reset the FIR filter
+ alt_write_word(h2p_ctrl_out_addr, ctrl_out);	// write down the control
+ usleep(1);
+ ctrl_out |= (DCONV_FIR_RST_RESET_N | DCONV_FIR_Q_RST_RESET_N);// enable the FIR filter
+ alt_write_word(h2p_ctrl_out_addr, ctrl_out);	// write down the control
+ usleep(1);
+ // alt_write_word(h2p_dconv_firQ_addr, 20);
+ //
 
-	/*********************************************************************
-	 // ************************** TEST CODE ********************************
-	 int64_t datatest;
-	 alt_write_dword(h2p_sdram_addr, 0xAAAA88881111FFFF);
-	 datatest = alt_read_dword(h2p_sdram_addr);
+ / *********************************************************************
+ // ************************** TEST CODE ********************************
+ int64_t datatest;
+ alt_write_dword(h2p_sdram_addr, 0xAAAA88881111FFFF);
+ datatest = alt_read_dword(h2p_sdram_addr);
 
-	 alt_write_dword(h2p_fifoin64dummy_addr, 0xAAAABBBBCCCCDDDD);
-	 datatest = alt_read_word(
-	 h2p_fifoout64csrdummy_addr + ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
-	 //datatest = alt_read_dword(h2p_fifoout64dummy_addr);
-	 reset_dma (h2p_dmadummy_addr);
-	 fifo_to_sdram_dma_trf(h2p_dmadummy_addr, FIFO_DUMMY64_OUT_OUT_BASE,
-	 DMA_DUMMY_WRITE_MASTER_SDRAM_BASE, 1);
-	 check_dma(h2p_dmadummy_addr, ENABLE_MESSAGE);
-	 datatest = alt_read_dword(h2p_sdram_addr);
-	 printf("datatest: %li\n", datatest);
-	 datatest = alt_read_word(
-	 h2p_fifoout64csrdummy_addr + ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
+ alt_write_dword(h2p_fifoin64dummy_addr, 0xAAAABBBBCCCCDDDD);
+ datatest = alt_read_word(
+ h2p_fifoout64csrdummy_addr + ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
+ //datatest = alt_read_dword(h2p_fifoout64dummy_addr);
+ reset_dma (h2p_dmadummy_addr);
+ fifo_to_sdram_dma_trf(h2p_dmadummy_addr, FIFO_DUMMY64_OUT_OUT_BASE,
+ DMA_DUMMY_WRITE_MASTER_SDRAM_BASE, 1);
+ check_dma(h2p_dmadummy_addr, ENABLE_MESSAGE);
+ datatest = alt_read_dword(h2p_sdram_addr);
+ printf("datatest: %li\n", datatest);
+ datatest = alt_read_word(
+ h2p_fifoout64csrdummy_addr + ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
 
-	 alt_write_dword(h2p_sdram_addr, 0xAAAA88881111FFFF);
-	 datatest = alt_read_dword(h2p_sdram_addr);
-	 printf("datatest: %li\n", datatest);
+ alt_write_dword(h2p_sdram_addr, 0xAAAA88881111FFFF);
+ datatest = alt_read_dword(h2p_sdram_addr);
+ printf("datatest: %li\n", datatest);
 
-	 alt_write_dword(h2p_fifoin_dummy_addr, 0xAAAABBBBCCCCDDDD);
-	 datatest = alt_read_word(
-	 h2p_fifoincsr_dummy_addr + ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
-	 datatest = alt_read_dword(h2p_fifoout_dummy_addr);
-	 datatest = alt_read_word(
-	 h2p_fifoincsr_dummy_addr + ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
-	 printf("%ld", datatest);
-	 // ******************************************************************** /
-	 // ********************************************************************/
+ alt_write_dword(h2p_fifoin_dummy_addr, 0xAAAABBBBCCCCDDDD);
+ datatest = alt_read_word(
+ h2p_fifoincsr_dummy_addr + ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
+ datatest = alt_read_dword(h2p_fifoout_dummy_addr);
+ datatest = alt_read_word(
+ h2p_fifoincsr_dummy_addr + ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
+ printf("%ld", datatest);
+ // ******************************************************************** /
+ // ******************************************************************** /
 
-	alt_write_word(h2p_adc_val_sub, 9275); // do noise measurement and all the data to get this ADC DC bias integer value
+ alt_write_word(h2p_adc_val_sub, 9275); // do noise measurement and all the data to get this ADC DC bias integer value
 
-// printf("cpmg_freq = %0.3f\n",cpmg_freq);
-	CPMG_iterate(cpmg_freq, pulse1_us, pulse2_us, pulse1_dtcl, pulse2_dtcl,
-			echo_spacing_us, scan_spacing_us, samples_per_echo, echoes_per_scan,
-			init_adc_delay_compensation, number_of_iteration, ph_cycl_en);
+ // printf("cpmg_freq = %0.3f\n",cpmg_freq);
+ CPMG_iterate(cpmg_freq, pulse1_us, pulse2_us, pulse1_dtcl, pulse2_dtcl,
+ echo_spacing_us, scan_spacing_us, samples_per_echo, echoes_per_scan,
+ init_adc_delay_compensation, number_of_iteration, ph_cycl_en);
 
-// close_system();
-	munmap_peripherals();
-	close_physical_memory_device();
+ // close_system();
+ munmap_peripherals();
+ close_physical_memory_device();
 
-// free memory
-#ifdef GET_RAW_DATA
-	free(rddata_16);	//freeing up allocated memory required for multiple calls from host
-	free(rddata);//petrillo 2Feb2019
-#endif
-#ifdef GET_DCONV_DATA
-	free (dconv);
-#endif
+ // free memory
+ #ifdef GET_RAW_DATA
+ free(rddata_16);	//freeing up allocated memory required for multiple calls from host
+ free(rddata);//petrillo 2Feb2019
+ #endif
+ #ifdef GET_DCONV_DATA
+ free (dconv);
+ #endif
 
-	return 0;
-}
-//
+ return 0;
+ }
+ */
 
 /* FID Iterate (rename the output to "fid")
  int main(int argc, char * argv[])
