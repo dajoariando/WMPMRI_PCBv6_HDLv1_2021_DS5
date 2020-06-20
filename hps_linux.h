@@ -1,8 +1,8 @@
 #ifndef HPS_LINUX_H_
 #define HPS_LINUX_H_
 
-#define GET_RAW_DATA // get raw data and store it to the fifo. Needed for everything that's not using FPGA downconverted data
-// #define GET_DCONV_DATA // get downconverted data and store it into the fifo. Use it ONLY on CPMG_iterate main program
+// #define GET_RAW_DATA // get raw data and store it to the fifo. Needed for everything that's not using FPGA downconverted data
+#define GET_DCONV_DATA // get downconverted data and store it into the fifo. Use it ONLY on CPMG_iterate main program
 
 #include <alt_generalpurpose_io.h>
 #include <assert.h>
@@ -109,6 +109,7 @@ void *h2p_t1_pulse = NULL; // the pulse length before CPMG (T1 measurement)
 void *h2p_t1_delay = NULL; // the delay length before CPMG (T1 measurement)
 void *h2p_adc_val_sub = NULL; // the zero bias ADC voltage for downconversion DC bias removal
 void *h2p_dec_fact_addr = NULL; // the decimation factor
+void *h2p_echo_skip_hw_addr = NULL; // skip echoes in hardware
 volatile unsigned int *h2p_dconv_firI_addr = NULL; // the fir I address
 volatile unsigned int *h2p_dconv_firQ_addr = NULL; // the fir Q address
 
@@ -180,16 +181,20 @@ unsigned int j;
 #ifdef GET_RAW_DATA
 int *rddata;
 unsigned int *rddata_16;
+unsigned int dsize;
 #endif
 
 #ifdef GET_DCONV_DATA
 int *dconv;
+unsigned int dconv_size;
 #endif
 
 char foldername[50]; // variable to store folder name of the measurement data
 char pathname[60];
 
-int dconv_fact; // downconversion factor, programmable via dec_fact parameter in QSYS. The dconv_fact should be smaller/the same with the samples_per_echo.
+int dconv_fact; // downconversion factor
+int echo_skip_hw; // echo skipping factor in hardware (echoes captured by the ADC are reduced by this factor)
+// int echo_skip_sw; // echo skipping factor in software (echoes are captured by the FPGA, but is not saved in output file)
 
 // FPGA control signal address
 uint32_t ctrl_out = CNT_OUT_default; // default variable to store the current control state
