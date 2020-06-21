@@ -790,7 +790,7 @@ void datawrite_with_dma (uint32_t transfer_length, uint8_t en_mesg)
 	 */
 
 	memcpy(rddata,(int*)h2p_sdram_addr,transfer_length*sizeof(int));
-	buf32_to_buf16 (rddata, rddata_16, transfer_length );// transfer data from 32-bit buffer to 16-bit buffer
+	// buf32_to_buf16 (rddata, rddata_16, transfer_length );// transfer data from 32-bit buffer to 16-bit buffer
 
 }
 #endif
@@ -872,14 +872,16 @@ void runFSM(double nmr_fsm_clkfreq, uint32_t ph_cycl_en,
 	// process raw data
 	if (store_to_sdram_noread)
 	{ // do not write data to text with C programming: external mechanism should be implemented
-		fifo_to_sdram_dma_trf (h2p_dma_addr, ADC_FIFO_MEM_OUT_BASE, SDRAM_BASE, acq_length/2);// start DMA process
+	  // fifo_to_sdram_dma_trf (h2p_dma_addr, ADC_FIFO_MEM_OUT_BASE, SDRAM_BASE, acq_length/2);// start DMA process
+		fifo_to_sdram_dma_trf (h2p_dma_addr, ADC_FIFO_MEM_OUT_BASE, SDRAM_BASE, acq_length);// start DMA process
 		//while ( alt_read_word(h2p_ctrl_in_addr) & (0x01<<NMR_SEQ_run_ofst) ); // might not be needed as the system will wait until data is available anyway
 	}
 	else
 	{ // write data to text via c-programming
 		if (rd_sdram_OR_n_rd_fifo)
 		{ // if read with dma is intended.
-			datawrite_with_dma(acq_length/2,DISABLE_MESSAGE);
+		  // datawrite_with_dma(acq_length/2,DISABLE_MESSAGE);
+			datawrite_with_dma(acq_length,DISABLE_MESSAGE);
 			while ( alt_read_word(h2p_ctrl_in_addr) & (0x01<<NMR_SEQ_run_ofst) );// wait until fsm stops, just in case the DMA is too fast.
 		}
 		else
@@ -887,12 +889,14 @@ void runFSM(double nmr_fsm_clkfreq, uint32_t ph_cycl_en,
 			while ( alt_read_word(h2p_ctrl_in_addr) & (0x01<<NMR_SEQ_run_ofst) );// wait until fsm stops
 			usleep(300);
 			unsigned int datacaptured = rd_FIFO (h2p_adc_fifo_status_addr, h2p_adc_fifo_addr, rddata);
-			if ((datacaptured<<1) != acq_length)
+			// if ((datacaptured<<1) != acq_length)
+			if ((datacaptured) != acq_length)
 			{
-				printf("[ERROR] number of data in the FIFO (%d) and data ordered (%d): NOT MATCHED\nData are flushed!\nReconfigure the FPGA immediately\n", datacaptured<<1, acq_length);
+				// printf("[ERROR] number of data in the FIFO (%d) and data ordered (%d): NOT MATCHED\nData are flushed!\nReconfigure the FPGA immediately\n", datacaptured<<1, acq_length);
+				printf("[ERROR] number of data in the FIFO (%d) and data ordered (%d): NOT MATCHED\nData are flushed!\nReconfigure the FPGA immediately\n", datacaptured, acq_length);
 				return;
 			}
-			buf32_to_buf16 (rddata, rddata_16, acq_length>>1 ); // transfer data from 32-bit buffer to 16-bit buffer
+			// buf32_to_buf16 (rddata, rddata_16, acq_length>>1 ); // transfer data from 32-bit buffer to 16-bit buffer
 		}
 
 		if (sav_indv_scan)
@@ -1197,7 +1201,10 @@ void CPMG_iterate(double cpmg_freq, double pulse1_us, double pulse2_us,
 // amplitude sum
 #ifdef GET_RAW_DATA
 	float Asum[dsize];
-	for (i=0; i<dsize; i++) Asum[i] = 0;
+	for (i=0; i<dsize; i++)
+	{
+		Asum[i] = 0;
+	}
 #endif
 
 #ifdef GET_DCONV_DATA
@@ -1243,19 +1250,21 @@ void CPMG_iterate(double cpmg_freq, double pulse1_us, double pulse2_us,
 			if (iterate % 2 == 0)
 			{
 				for (i = 0; i < dsize; i++)
-				Asum[i] -= (float)rddata_16[i]/(float)number_of_iteration;
+				// Asum[i] -= (float)rddata_16[i]/(float)number_of_iteration;
+				Asum[i] -= (float)rddata[i]/(float)number_of_iteration;
 			}
 			else
 			{
 				for (i = 0; i < dsize; i++)
-				Asum[i] += (float)rddata_16[i]/(float)number_of_iteration;
-
+				// Asum[i] += (float)rddata_16[i]/(float)number_of_iteration;
+				Asum[i] += (float)rddata[i]/(float)number_of_iteration;
 			}
 		}
 		else
 		{
 			for (i = 0; i < dsize; i++)
-			Asum[i] += (double)rddata_16[i]/(float)number_of_iteration;
+			// Asum[i] += (float)rddata_16[i]/(float)number_of_iteration;
+			Asum[i] += (float)rddata[i]/(float)number_of_iteration;
 		}
 
 #endif
@@ -1478,7 +1487,8 @@ void FID_iterate(double cpmg_freq, double pulse2_us, double pulse2_dtcl,
 
 #ifdef GET_RAW_DATA
 		for (i = 0; i < samples_per_echo; i++)
-		Asum[i] += rddata_16[i];
+		// Asum[i] += rddata_16[i];
+		Asum[i] += rddata[i];
 #endif
 
 	}
@@ -1633,7 +1643,8 @@ void noise_iterate(double cpmg_freq, long unsigned scan_spacing_us,
 
 #ifdef GET_RAW_DATA
 		for (i = 0; i < samples_per_echo; i++)
-		Asum[i] += rddata_16[i];
+		// Asum[i] += rddata_16[i];
+		Asum[i] += rddata[i];
 #endif
 	}
 
@@ -2083,14 +2094,37 @@ int main(int argc, char * argv[])
 	dconv_fact = atoi(argv[16]);	// down conversion factor
 	echo_skip_hw = atoi(argv[17]); // echo skipping factor in hardware (echoes captured by the ADC are reduced by this factor)
 
+	if (samples_per_echo % dconv_fact)
+	{
+		printf("\tERROR: samples_per_echo is not dconv_fact multiplication.\n");
+		return 0;
+	}
+	if (dconv_fact < 4)
+	{
+		printf("\tERROR: dconv_fact is less than 4.\n");
+		return 0;
+	}
+
 	// memory allocation
 #ifdef GET_RAW_DATA
 	dsize = samples_per_echo*echoes_per_scan/echo_skip_hw; // container size, limited by max memory 1024x1024 usually
-	rddata_16 = (unsigned int*)malloc(dsize*sizeof(unsigned int));
-	rddata = (int *)malloc(dsize/2*sizeof(int));// divide by 2 because 1 beat contains 2 symbols
+	if (dsize > 1024*1024)
+	{
+		printf("\tERROR: (samples_per_echo*echoes_scan/echo_skip_hw) is larger than 1024*1024.\n");
+		return 0;
+	}
+
+	// 	rddata_16 = (unsigned int*)malloc(dsize*sizeof(unsigned int));
+	rddata = (int *)malloc(dsize*sizeof(int));// divide by 2 because 1 beat contains 2 symbols
 #endif
 #ifdef GET_DCONV_DATA
 	dconv_size = samples_per_echo * echoes_per_scan / dconv_fact / echo_skip_hw * 2; // multiply 2 because of IQ data
+	if (dconv_size > 1024*1024)
+	{
+		printf("\tERROR: (samples_per_echo*echoes_scan/dconv_fact/echo_skip_hw*2) is larger than 1024*1024.\n");
+		return 0;
+	}
+
 	dconv = (int *) malloc(dconv_size* sizeof(int));
 #endif
 
@@ -2152,7 +2186,7 @@ int main(int argc, char * argv[])
 
 	// free memory
 #ifdef GET_RAW_DATA
-	free(rddata_16);	//freeing up allocated memory required for multiple calls from host
+// 	free(rddata_16);	//freeing up allocated memory required for multiple calls from host
 	free(rddata);//petrillo 2Feb2019
 #endif
 #ifdef GET_DCONV_DATA
