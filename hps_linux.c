@@ -962,6 +962,7 @@ void CPMG_Sequence(double cpmg_freq, double pulse1_us, double pulse2_us,
 {
 
 	clock_t start, end;
+	double net_acq_time, net_elapsed_time, net_scan_time;
 
 	// measure the start time
 	start = clock(); // measure time
@@ -1077,30 +1078,56 @@ void CPMG_Sequence(double cpmg_freq, double pulse1_us, double pulse2_us,
 			filename, NO_SAV_INDV_SCAN, RD_DATA_VIA_SDRAM_OR_FIFO, RD_SDRAM);
 #endif
 
-	// measure the end and elapsed time
+	// measure elapsed time after acquisition
 	end = clock(); // measure time
-	double elapsed = (double) (end - start) * 1000000 / CLOCKS_PER_SEC; // measure time in us
-
-	// if necessary, put delay so that the total delay of the sequence is scan_spacing_us
-	if (scan_spacing_us > (unsigned long) elapsed)
+	net_acq_time = ((double) (end - start)) * 1000000 / CLOCKS_PER_SEC; // measure time in us
+	if (enable_message)
 	{
+		printf("\t Elapsed time after data acquisition is %ld us.\n",
+				(unsigned long) net_acq_time);
+	}
 
-		unsigned long scan_added_delay_us = scan_spacing_us
-				- (unsigned long) elapsed;
-		usleep(scan_added_delay_us);
+	// add delay according to the given scan_spacing_us
+	end = clock(); // measure time
+	net_elapsed_time = ((double) (end - start)) * 1000000 / CLOCKS_PER_SEC; // measure time in us
+	if ((unsigned long) net_elapsed_time < scan_spacing_us)
+	{
+		while ((unsigned long) net_elapsed_time < scan_spacing_us)
+		{
+			end = clock(); // measure time
+			net_elapsed_time = ((double) (end - start)) * 1000000
+					/ CLOCKS_PER_SEC; // measure time in us
+		}
 
 		if (enable_message)
 		{
 			printf(
-					"\t Added %ld us at the end of the scan to account for scan_spacing_us.\n",
-					scan_added_delay_us);
+					"\t Added %0.0f us at the end of the scan to account for scan_spacing_us.\n",
+					net_elapsed_time - net_acq_time);
 		}
 	}
-	else
+
+	else // scan duration is already longer than the scan_spacing_us parameter
 	{
 		printf(
 				"\t[WARNING] One scan duration is longer than scan_spacing_us parameter (%ld us) and is measured to be approx. %ld us\n",
-				scan_spacing_us, (unsigned long) elapsed);
+				scan_spacing_us, (unsigned long) net_acq_time);
+	}
+
+	// Check and wait until the FSM stop running
+	if (alt_read_word(h2p_ctrl_in_addr) & (0x01 << NMR_SEQ_run_ofst))
+	{
+
+		while (alt_read_word(h2p_ctrl_in_addr) & (0x01 << NMR_SEQ_run_ofst))
+			;
+
+		// measure time after waiting for the FSM to be done
+		end = clock(); // measure time
+		net_scan_time = (double) (end - start) * 1000000 / CLOCKS_PER_SEC; // measure time in us
+		printf(
+				"\t[WARNING] Added additional delay as FSM was still running after scan_spacing_us time had elapsed. Net scan duration is approx. %ld us\n",
+				(unsigned long) net_scan_time);
+
 	}
 
 }
@@ -1228,19 +1255,19 @@ void CPMG_iterate(double cpmg_freq, double pulse1_us, double pulse2_us,
 		snprintf(name, FILENAME_LENGTH, "dat_%03d", iterate);
 		snprintf(nameavg, FILENAME_LENGTH, "avg_%03d", iterate);
 
-		CPMG_Sequence(cpmg_freq,				//cpmg_freq
-				pulse1_us,				//pulse1_us
-				pulse2_us,				//pulse2_us
-				pulse1_dtcl,				//pulse1_dtcl
-				pulse2_dtcl,				//pulse2_dtcl
-				echo_spacing_us,				//echo_spacing_us
-				scan_spacing_us,				//scan_spacing_us
-				samples_per_echo,				//samples_per_echo
-				echoes_per_scan,				//echoes_per_scan
-				init_adc_delay_compensation,//compensation delay number (counted by the adc base clock)
-				ph_cycl_en,				//phase cycle enable/disable
-				name,				//filename for data
-				nameavg,				//filename for average data
+		CPMG_Sequence(cpmg_freq, //cpmg_freq
+				pulse1_us, //pulse1_us
+				pulse2_us, //pulse2_us
+				pulse1_dtcl, //pulse1_dtcl
+				pulse2_dtcl, //pulse2_dtcl
+				echo_spacing_us, //echo_spacing_us
+				scan_spacing_us, //scan_spacing_us
+				samples_per_echo, //samples_per_echo
+				echoes_per_scan, //echoes_per_scan
+				init_adc_delay_compensation, //compensation delay number (counted by the adc base clock)
+				ph_cycl_en, //phase cycle enable/disable
+				name, //filename for data
+				nameavg, //filename for average data
 				DISABLE_MESSAGE);
 
 #ifdef GET_RAW_DATA
@@ -1348,10 +1375,10 @@ void FID(double cpmg_freq, double pulse2_us, double pulse2_dtcl,
 	unsigned int pulse2_int =
 			(unsigned int) (round(pulse2_us * nmr_fsm_clkfreq)); // the number of 180 deg pulse in the multiplication of cpmg pulse period (discrete value, no continuous number supported)
 	unsigned int delay2_int = (unsigned int) (round(
-			samples_per_echo * (nmr_fsm_clkfreq / adc_ltc1746_freq) * 10));	// the number of delay after 180 deg pulse. It is simply samples_per_echo multiplied by (nmr_fsm_clkfreq/adc_ltc1746_freq) factor, as the delay2_int is counted by nmr_fsm_clkfreq, not by adc_ltc1746_freq. It is also multiplied by a constant 10 as safety factor to make sure the ADC acquisition is inside FSMSTAT (refer to HDL) 'on' window.
-	unsigned int fixed_init_adc_delay = 3;// set to the minimum delay values, which is 3 (limited by HDL structure).
-	unsigned int fixed_echo_per_scan = 1;// it must be 1, otherwise the HDL will go to undefined state.
-	double init_delay_inherent;	// inherehent delay factor from the HDL structure. The minimum is 2.25 no matter how small the delay is set. Look ERRATA
+			samples_per_echo * (nmr_fsm_clkfreq / adc_ltc1746_freq) * 10)); // the number of delay after 180 deg pulse. It is simply samples_per_echo multiplied by (nmr_fsm_clkfreq/adc_ltc1746_freq) factor, as the delay2_int is counted by nmr_fsm_clkfreq, not by adc_ltc1746_freq. It is also multiplied by a constant 10 as safety factor to make sure the ADC acquisition is inside FSMSTAT (refer to HDL) 'on' window.
+	unsigned int fixed_init_adc_delay = 3; // set to the minimum delay values, which is 3 (limited by HDL structure).
+	unsigned int fixed_echo_per_scan = 1; // it must be 1, otherwise the HDL will go to undefined state.
+	double init_delay_inherent; // inherehent delay factor from the HDL structure. The minimum is 2.25 no matter how small the delay is set. Look ERRATA
 	if (fixed_init_adc_delay <= 2)
 	{
 		init_delay_inherent = 2.25;
@@ -2092,7 +2119,7 @@ int main(int argc, char * argv[])
 	unsigned int delay180_t1_int = atoi(argv[14]);
 	unsigned int tx_opa_sd = atoi(argv[15]);	// shutdown tx during reception
 	dconv_fact = atoi(argv[16]);	// down conversion factor
-	echo_skip_hw = atoi(argv[17]); // echo skipping factor in hardware (echoes captured by the ADC are reduced by this factor)
+	echo_skip_hw = atoi(argv[17]);// echo skipping factor in hardware (echoes captured by the ADC are reduced by this factor)
 
 	if (samples_per_echo % dconv_fact)
 	{
@@ -2173,7 +2200,7 @@ int main(int argc, char * argv[])
 	// alt_write_word(h2p_dconv_firQ_addr, 20);
 	//
 
-	alt_write_word(h2p_adc_val_sub, 9275); // do noise measurement and all the data to get this ADC DC bias integer value
+	alt_write_word(h2p_adc_val_sub, 9275);// do noise measurement and all the data to get this ADC DC bias integer value
 
 	// printf("cpmg_freq = %0.3f\n",cpmg_freq);
 	CPMG_iterate(cpmg_freq, pulse1_us, pulse2_us, pulse1_dtcl, pulse2_dtcl,

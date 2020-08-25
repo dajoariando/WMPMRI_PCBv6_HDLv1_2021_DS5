@@ -1,8 +1,8 @@
 #ifndef HPS_LINUX_H_
 #define HPS_LINUX_H_
 
-#define GET_RAW_DATA // get raw data and store it to the fifo. Needed for everything that's not using FPGA downconverted data
-// #define GET_DCONV_DATA // get downconverted data and store it into the fifo. Use it ONLY on CPMG_iterate main program
+// #define GET_RAW_DATA // get raw data and store it to the fifo. Needed for everything that's not using FPGA downconverted data
+#define GET_DCONV_DATA // get downconverted data and store it into the fifo. Use it ONLY on CPMG_iterate main program
 
 #include <alt_generalpurpose_io.h>
 #include <assert.h>
