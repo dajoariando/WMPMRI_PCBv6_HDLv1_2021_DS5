@@ -902,7 +902,7 @@ void runFSM(double nmr_fsm_clkfreq, uint32_t ph_cycl_en,
 		if (sav_indv_scan)
 		{ // put the individual scan data into a file
 
-			// save as binary file
+			// save as binary file or ascii file (remember to change the corresponding Python code to process the right type of data
 			sprintf(pathname,"%s/%s",foldername,filename);// create a filename
 			wr_File (pathname, acq_length, rddata, SAV_BINARY);// write the data to the filename
 
@@ -1733,7 +1733,7 @@ void tx_sampling(double tx_freq, double samp_freq,
 	usleep(1);
 
 	runFSM(samp_freq * 4, ph_cycl_en, tx_num_of_samples, filename,
-			SAV_INDV_SCAN, RD_DATA_VIA_SDRAM_OR_FIFO, RD_SDRAM);
+			SAV_INDV_SCAN, RD_DATA_VIA_SDRAM_OR_FIFO, RD_FIFO);
 
 // disable PLL_analyzer path and enable the default RF gate path
 	ctrl_out |= NMR_CLK_GATE_AVLN;
@@ -1917,14 +1917,15 @@ void close_system()
 // MAIN SYSTEM (ENABLE ONE AT A TIME)
 
 /* Init default system param (rename the output to "init")
- int main() {
+ int main()
+ {
  // printf("Init system\n");
 
  open_physical_memory_device();
  mmap_peripherals();
  init_default_system_param();
 
- alt_write_word( h2p_rx_delay_addr , 20 );
+ alt_write_word(h2p_rx_delay_addr, 20);
 
  munmap_peripherals();
  close_physical_memory_device();
@@ -2033,8 +2034,8 @@ void close_system()
  unsigned int wobb_samples = (unsigned int) (lround(sampfreq / spacfreq)); // the number of ADC samples taken
 
  // memory allocation
- rddata_16 = (unsigned int*) malloc(wobb_samples * sizeof(unsigned int));
- rddata = (int *) malloc(wobb_samples / 2 * sizeof(int));
+ // rddata_16 = (unsigned int*) malloc(wobb_samples * sizeof(unsigned int));
+ rddata = (int *) malloc(wobb_samples * sizeof(int));
 
  tx_acq(startfreq, stopfreq, spacfreq, sampfreq, wobb_samples);
 
@@ -2045,184 +2046,184 @@ void close_system()
  close_physical_memory_device();
 
  // free memory
- free (rddata_16);
+ // free (rddata_16);
  free (rddata);
 
  return 0;
  }
  */
 
-/* Preamp gain characterization (rename the output to "pamp_char")
- int main(int argc, char * argv[])
- {
- printf("Pamp characterization measurement starts\n");
-
- // input parameters
- double startfreq = atof(argv[1]);
- double stopfreq = atof(argv[2]);
- double spacfreq = atof(argv[3]);
- double sampfreq = atof(argv[4]);
-
- open_physical_memory_device();
- mmap_peripherals();
- // init_default_system_param();
-
- ctrl_out = alt_read_word(h2p_ctrl_out_addr);
- alt_write_word((h2p_ctrl_out_addr), (ctrl_out & (~TX_OPA_EN))); // disable the TX opamp
-
- unsigned int samples = (unsigned int) (lround(sampfreq / spacfreq)); // the number of ADC samples taken
-
- // memory allocation
- rddata_16 = (unsigned int*) malloc(samples * sizeof(unsigned int));
- rddata = (unsigned int *) malloc(samples / 2 * sizeof(unsigned int));
-
- tx_acq(startfreq, stopfreq, spacfreq, sampfreq, samples);
-
- alt_write_word((h2p_ctrl_out_addr), (ctrl_out | TX_OPA_EN)); // re-enable the TX opamp (default)
-
- // close_system();
- munmap_peripherals();
- close_physical_memory_device();
-
- // free memory
- free (rddata_16);
- free (rddata);
-
- return 0;
- }
- */
-
-// CPMG Iterate
-// rename the output to "cpmg_iterate_raw" and define GET_RAW_DATA to get raw data.
-// rename the output to "cpmg_iterate_dconv" and define GET_RAW_DCONV to get downconverted data.
-// if CPMG Sequence is used without writing to text file, rename the output to "cpmg_iterate_direct". Use STORE_TO_SDRAM_NOREAD in the cpmg_Sequence
+// Preamp gain characterization (rename the output to "pamp_char")
 int main(int argc, char * argv[])
 {
-	// this program can only be run with the power supply 'on' that enables ADC circuitry and clock.
-	// To turn on the power supply, you can use the Python code and add breakpoint before CPMG_sequence().
-	// printf("NMR system start\n");
+	printf("Pamp characterization measurement starts\n");
 
 	// input parameters
-	double cpmg_freq = atof(argv[1]);
-	double pulse1_us = atof(argv[2]);
-	double pulse2_us = atof(argv[3]);
-	double pulse1_dtcl = atof(argv[4]);
-	double pulse2_dtcl = atof(argv[5]);
-	double echo_spacing_us = atof(argv[6]);
-	long unsigned scan_spacing_us = atoi(argv[7]);
-	unsigned int samples_per_echo = atoi(argv[8]);
-	unsigned int echoes_per_scan = atoi(argv[9]);
-	double init_adc_delay_compensation = atof(argv[10]);
-	unsigned int number_of_iteration = atoi(argv[11]);
-	uint32_t ph_cycl_en = atoi(argv[12]);
-	unsigned int pulse180_t1_int = atoi(argv[13]);
-	unsigned int delay180_t1_int = atoi(argv[14]);
-	unsigned int tx_opa_sd = atoi(argv[15]);	// shutdown tx during reception
-	dconv_fact = atoi(argv[16]);	// down conversion factor
-	echo_skip_hw = atoi(argv[17]);// echo skipping factor in hardware (echoes captured by the ADC are reduced by this factor)
-
-	if (samples_per_echo % dconv_fact)
-	{
-		printf("\tERROR: samples_per_echo is not dconv_fact multiplication.\n");
-		return 0;
-	}
-	if (dconv_fact < 4)
-	{
-		printf("\tERROR: dconv_fact is less than 4.\n");
-		return 0;
-	}
-
-	// memory allocation
-#ifdef GET_RAW_DATA
-	dsize = samples_per_echo*echoes_per_scan/echo_skip_hw; // container size, limited by max memory 1024x1024 usually
-	if (dsize > 1024*1024)
-	{
-		printf("\tERROR: (samples_per_echo*echoes_scan/echo_skip_hw) is larger than 1024*1024.\n");
-		return 0;
-	}
-
-	// 	rddata_16 = (unsigned int*)malloc(dsize*sizeof(unsigned int));
-	rddata = (int *)malloc(dsize*sizeof(int));// divide by 2 because 1 beat contains 2 symbols
-#endif
-#ifdef GET_DCONV_DATA
-	dconv_size = samples_per_echo * echoes_per_scan / dconv_fact / echo_skip_hw * 2; // multiply 2 because of IQ data
-	if (dconv_size > 1024*1024)
-	{
-		printf("\tERROR: (samples_per_echo*echoes_scan/dconv_fact/echo_skip_hw*2) is larger than 1024*1024.\n");
-		return 0;
-	}
-
-	dconv = (int *) malloc(dconv_size* sizeof(int));
-#endif
+	double startfreq = atof(argv[1]);
+	double stopfreq = atof(argv[2]);
+	double spacfreq = atof(argv[3]);
+	double sampfreq = atof(argv[4]);
 
 	open_physical_memory_device();
 	mmap_peripherals();
 	// init_default_system_param();
 
-	// write t1-IR measurement parameters (put both to 0 if IR is not desired)
-	alt_write_word(h2p_t1_pulse, pulse180_t1_int);
-	alt_write_word(h2p_t1_delay, delay180_t1_int);
-
-	// write downconversion factor
-	alt_write_word(h2p_dec_fact_addr, dconv_fact);
-
-	// write echo skip factor
-	alt_write_word(h2p_echo_skip_hw_addr, echo_skip_hw);
-
-	// read the current ctrl_out
 	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
+	alt_write_word((h2p_ctrl_out_addr), (ctrl_out & (~TX_OPA_EN))); // disable the TX opamp
 
-	// enable the TX opamp during reception, will be controlled using the tx_opa_sd instead
-	ctrl_out = ctrl_out | TX_OPA_EN;
-	alt_write_word((h2p_ctrl_out_addr), ctrl_out);
+	unsigned int samples = (unsigned int) (lround(sampfreq / spacfreq)); // the number of ADC samples taken
 
-	if (tx_opa_sd)
-	{ // shutdown tx opamp during reception
-		ctrl_out = ctrl_out | TX_OPA_SD_MSK;
-		alt_write_word((h2p_ctrl_out_addr), ctrl_out);
-	}
-	else
-	{ // power up tx opamp all the way during reception
-		ctrl_out = ctrl_out & (~TX_OPA_SD_MSK);
-		alt_write_word((h2p_ctrl_out_addr), ctrl_out);
-	}
+	// memory allocation
+	// rddata_16 = (unsigned int*) malloc(samples * sizeof(unsigned int));
+	rddata = (unsigned int *) malloc(samples * sizeof(unsigned int));
 
-	// read and write fir coefficients
-	// fir registers cannot be read like a standard avalon-mm registers, it has sequence if the setting is set to read/write mode
-	// look at the fir user guide to see this sequence
-	// however, it can be set just to read mode or write mode and it supposed to work with avalon-mm
-	ctrl_out &= ~(DCONV_FIR_RST_RESET_N | DCONV_FIR_Q_RST_RESET_N);	// reset the FIR filter
-	alt_write_word(h2p_ctrl_out_addr, ctrl_out);	// write down the control
-	usleep(1);
-	ctrl_out |= (DCONV_FIR_RST_RESET_N | DCONV_FIR_Q_RST_RESET_N);// enable the FIR filter
-	alt_write_word(h2p_ctrl_out_addr, ctrl_out);	// write down the control
-	usleep(1);
-	// alt_write_word(h2p_dconv_firQ_addr, 20);
-	//
+	tx_acq(startfreq, stopfreq, spacfreq, sampfreq, samples);
 
-	alt_write_word(h2p_adc_val_sub, 9275);// do noise measurement and all the data to get this ADC DC bias integer value
-
-	// printf("cpmg_freq = %0.3f\n",cpmg_freq);
-	CPMG_iterate(cpmg_freq, pulse1_us, pulse2_us, pulse1_dtcl, pulse2_dtcl,
-			echo_spacing_us, scan_spacing_us, samples_per_echo, echoes_per_scan,
-			init_adc_delay_compensation, number_of_iteration, ph_cycl_en);
+	alt_write_word((h2p_ctrl_out_addr), (ctrl_out | TX_OPA_EN)); // re-enable the TX opamp (default)
 
 	// close_system();
 	munmap_peripherals();
 	close_physical_memory_device();
 
 	// free memory
-#ifdef GET_RAW_DATA
-// 	free(rddata_16);	//freeing up allocated memory required for multiple calls from host
-	free(rddata);//petrillo 2Feb2019
-#endif
-#ifdef GET_DCONV_DATA
-	free (dconv);
-#endif
+	// free (rddata_16);
+	free (rddata);
 
 	return 0;
 }
 //
+
+/* CPMG Iterate
+ // rename the output to "cpmg_iterate_raw" and define GET_RAW_DATA to get raw data.
+ // rename the output to "cpmg_iterate_dconv" and define GET_RAW_DCONV to get downconverted data.
+ // if CPMG Sequence is used without writing to text file, rename the output to "cpmg_iterate_direct". Use STORE_TO_SDRAM_NOREAD in the cpmg_Sequence
+ int main(int argc, char * argv[])
+ {
+ // this program can only be run with the power supply 'on' that enables ADC circuitry and clock.
+ // To turn on the power supply, you can use the Python code and add breakpoint before CPMG_sequence().
+ // printf("NMR system start\n");
+
+ // input parameters
+ double cpmg_freq = atof(argv[1]);
+ double pulse1_us = atof(argv[2]);
+ double pulse2_us = atof(argv[3]);
+ double pulse1_dtcl = atof(argv[4]);
+ double pulse2_dtcl = atof(argv[5]);
+ double echo_spacing_us = atof(argv[6]);
+ long unsigned scan_spacing_us = atoi(argv[7]);
+ unsigned int samples_per_echo = atoi(argv[8]);
+ unsigned int echoes_per_scan = atoi(argv[9]);
+ double init_adc_delay_compensation = atof(argv[10]);
+ unsigned int number_of_iteration = atoi(argv[11]);
+ uint32_t ph_cycl_en = atoi(argv[12]);
+ unsigned int pulse180_t1_int = atoi(argv[13]);
+ unsigned int delay180_t1_int = atoi(argv[14]);
+ unsigned int tx_opa_sd = atoi(argv[15]);	// shutdown tx during reception
+ dconv_fact = atoi(argv[16]);	// down conversion factor
+ echo_skip_hw = atoi(argv[17]);// echo skipping factor in hardware (echoes captured by the ADC are reduced by this factor)
+
+ if (samples_per_echo % dconv_fact)
+ {
+ printf("\tERROR: samples_per_echo is not dconv_fact multiplication.\n");
+ return 0;
+ }
+ if (dconv_fact < 4)
+ {
+ printf("\tERROR: dconv_fact is less than 4.\n");
+ return 0;
+ }
+
+ // memory allocation
+ #ifdef GET_RAW_DATA
+ dsize = samples_per_echo*echoes_per_scan/echo_skip_hw; // container size, limited by max memory 1024x1024 usually
+ if (dsize > 1024*1024)
+ {
+ printf("\tERROR: (samples_per_echo*echoes_scan/echo_skip_hw) is larger than 1024*1024.\n");
+ return 0;
+ }
+
+ // 	rddata_16 = (unsigned int*)malloc(dsize*sizeof(unsigned int));
+ rddata = (int *)malloc(dsize*sizeof(int));// divide by 2 because 1 beat contains 2 symbols
+ #endif
+ #ifdef GET_DCONV_DATA
+ dconv_size = samples_per_echo * echoes_per_scan / dconv_fact / echo_skip_hw * 2; // multiply 2 because of IQ data
+ if (dconv_size > 1024*1024)
+ {
+ printf("\tERROR: (samples_per_echo*echoes_scan/dconv_fact/echo_skip_hw*2) is larger than 1024*1024.\n");
+ return 0;
+ }
+
+ dconv = (int *) malloc(dconv_size* sizeof(int));
+ #endif
+
+ open_physical_memory_device();
+ mmap_peripherals();
+ // init_default_system_param();
+
+ // write t1-IR measurement parameters (put both to 0 if IR is not desired)
+ alt_write_word(h2p_t1_pulse, pulse180_t1_int);
+ alt_write_word(h2p_t1_delay, delay180_t1_int);
+
+ // write downconversion factor
+ alt_write_word(h2p_dec_fact_addr, dconv_fact);
+
+ // write echo skip factor
+ alt_write_word(h2p_echo_skip_hw_addr, echo_skip_hw);
+
+ // read the current ctrl_out
+ ctrl_out = alt_read_word(h2p_ctrl_out_addr);
+
+ // enable the TX opamp during reception, will be controlled using the tx_opa_sd instead
+ ctrl_out = ctrl_out | TX_OPA_EN;
+ alt_write_word((h2p_ctrl_out_addr), ctrl_out);
+
+ if (tx_opa_sd)
+ { // shutdown tx opamp during reception
+ ctrl_out = ctrl_out | TX_OPA_SD_MSK;
+ alt_write_word((h2p_ctrl_out_addr), ctrl_out);
+ }
+ else
+ { // power up tx opamp all the way during reception
+ ctrl_out = ctrl_out & (~TX_OPA_SD_MSK);
+ alt_write_word((h2p_ctrl_out_addr), ctrl_out);
+ }
+
+ // read and write fir coefficients
+ // fir registers cannot be read like a standard avalon-mm registers, it has sequence if the setting is set to read/write mode
+ // look at the fir user guide to see this sequence
+ // however, it can be set just to read mode or write mode and it supposed to work with avalon-mm
+ ctrl_out &= ~(DCONV_FIR_RST_RESET_N | DCONV_FIR_Q_RST_RESET_N);	// reset the FIR filter
+ alt_write_word(h2p_ctrl_out_addr, ctrl_out);	// write down the control
+ usleep(1);
+ ctrl_out |= (DCONV_FIR_RST_RESET_N | DCONV_FIR_Q_RST_RESET_N);// enable the FIR filter
+ alt_write_word(h2p_ctrl_out_addr, ctrl_out);	// write down the control
+ usleep(1);
+ // alt_write_word(h2p_dconv_firQ_addr, 20);
+ //
+
+ alt_write_word(h2p_adc_val_sub, 9275);// do noise measurement and all the data to get this ADC DC bias integer value
+
+ // printf("cpmg_freq = %0.3f\n",cpmg_freq);
+ CPMG_iterate(cpmg_freq, pulse1_us, pulse2_us, pulse1_dtcl, pulse2_dtcl,
+ echo_spacing_us, scan_spacing_us, samples_per_echo, echoes_per_scan,
+ init_adc_delay_compensation, number_of_iteration, ph_cycl_en);
+
+ // close_system();
+ munmap_peripherals();
+ close_physical_memory_device();
+
+ // free memory
+ #ifdef GET_RAW_DATA
+ // 	free(rddata_16);	//freeing up allocated memory required for multiple calls from host
+ free(rddata);//petrillo 2Feb2019
+ #endif
+ #ifdef GET_DCONV_DATA
+ free (dconv);
+ #endif
+
+ return 0;
+ }
+ */
 
 /* FID Iterate (rename the output to "fid")
  int main(int argc, char * argv[])
@@ -2297,8 +2298,8 @@ int main(int argc, char * argv[])
 
  // memory allocation
  #ifdef GET_RAW_DATA
- rddata_16 = (unsigned int*)malloc(samples_per_echo*sizeof(unsigned int)); // added malloc to this routine only - other routines will need to be updated when required
- rddata = (unsigned int *)malloc(samples_per_echo/2*sizeof(unsigned int));// petrillo 2Feb2019
+ // rddata_16 = (unsigned int*)malloc(samples_per_echo*sizeof(unsigned int)); // added malloc to this routine only - other routines will need to be updated when required
+ rddata = (int *)malloc(samples_per_echo*sizeof(unsigned int));// petrillo 2Feb2019
  #endif
 
  open_physical_memory_device();
@@ -2315,7 +2316,7 @@ int main(int argc, char * argv[])
 
  // free memory
  #ifdef GET_RAW_DATA
- free(rddata_16);	//freeing up allocated memory required for multiple calls from host
+ // free(rddata_16);	//freeing up allocated memory required for multiple calls from host
  free(rddata);//petrillo 2Feb2019
  #endif
 

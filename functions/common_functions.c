@@ -35,7 +35,7 @@ unsigned int rd_FIFO(volatile unsigned int *FIFO_status_addr,
 	fifo_mem_level = alt_read_word(
 			FIFO_status_addr + ALTERA_AVALON_FIFO_LEVEL_REG); // the fill level of FIFO memory
 	for (i = 0; fifo_mem_level > 0; i++)
-	{ // FIFO is 32-bit, while 1-sample is only 16-bit. FIFO organize this automatically. So, fetch only amount_of_data shifted by 2 to get amount_of_data/2.
+	{ // this is old comment, the FIFO is now only one 32-bit data per beat:: FIFO is 32-bit, while 1-sample is only 16-bit. FIFO organize this automatically. So, fetch only amount_of_data shifted by 2 to get amount_of_data/2.
 		buf32[i] = alt_read_word(FIFO_data_addr);
 
 		fifo_mem_level--;
@@ -80,7 +80,7 @@ void wr_File(char * pathname, unsigned int length, int * buf,
 
 	if (binary_OR_ascii)
 	{ // binary output
-		fwrite(buf, sizeof(uint16_t), length, fptr);
+		fwrite(buf, sizeof(uint32_t), length, fptr);
 	}
 
 	else
