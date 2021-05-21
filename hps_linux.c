@@ -127,6 +127,18 @@ void mmap_fpga_peripherals()
 	h2p_sdram_addr = h2f_axi_master + SDRAM_BASE;
 	h2p_switches_addr = h2f_axi_master + SWITCHES_BASE;
 
+	// magnet memmory map magnet addresses
+	h2p_mgnt_chg_plen_addr = h2f_lw_axi_master
+			+ NMR_PARAMETERS_MGNT_CHG_PLEN_BASE;
+	h2p_mgnt_chg_dlen_addr = h2f_lw_axi_master
+			+ NMR_PARAMETERS_MGNT_CHG_DLEN_BASE;
+	h2p_mgnt_dchg_plen_addr = h2f_lw_axi_master
+			+ NMR_PARAMETERS_MGNT_DCHG_PLEN_BASE;
+	h2p_mgnt_dchg_dlen_addr = h2f_lw_axi_master
+			+ NMR_PARAMETERS_MGNT_DCHG_DLEN_BASE;
+	h2p_mgnt_n_addr = h2f_lw_axi_master + NMR_PARAMETERS_MGNT_N_BASE;
+	h2p_mgnt_d_addr = h2f_lw_axi_master + NMR_PARAMETERS_MGNT_D_BASE;
+
 	// dummy code
 	//h2p_dmadummy_addr				= h2f_lw_axi_master + DMA_DUMMY_BASE;
 	//h2p_fifoin_dummy_addr			= h2f_axi_master + FIFO_DUMMY_IN_BASE;
@@ -2053,45 +2065,45 @@ void close_system()
  }
  */
 
-// Preamp gain characterization (rename the output to "pamp_char")
-int main(int argc, char * argv[])
-{
-	printf("Pamp characterization measurement starts\n");
+/* Preamp gain characterization (rename the output to "pamp_char")
+ int main(int argc, char * argv[])
+ {
+ printf("Pamp characterization measurement starts\n");
 
-	// input parameters
-	double startfreq = atof(argv[1]);
-	double stopfreq = atof(argv[2]);
-	double spacfreq = atof(argv[3]);
-	double sampfreq = atof(argv[4]);
+ // input parameters
+ double startfreq = atof(argv[1]);
+ double stopfreq = atof(argv[2]);
+ double spacfreq = atof(argv[3]);
+ double sampfreq = atof(argv[4]);
 
-	open_physical_memory_device();
-	mmap_peripherals();
-	// init_default_system_param();
+ open_physical_memory_device();
+ mmap_peripherals();
+ // init_default_system_param();
 
-	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
-	alt_write_word((h2p_ctrl_out_addr), (ctrl_out & (~TX_OPA_EN))); // disable the TX opamp
+ ctrl_out = alt_read_word(h2p_ctrl_out_addr);
+ alt_write_word((h2p_ctrl_out_addr), (ctrl_out & (~TX_OPA_EN))); // disable the TX opamp
 
-	unsigned int samples = (unsigned int) (lround(sampfreq / spacfreq)); // the number of ADC samples taken
+ unsigned int samples = (unsigned int) (lround(sampfreq / spacfreq)); // the number of ADC samples taken
 
-	// memory allocation
-	// rddata_16 = (unsigned int*) malloc(samples * sizeof(unsigned int));
-	rddata = (unsigned int *) malloc(samples * sizeof(unsigned int));
+ // memory allocation
+ // rddata_16 = (unsigned int*) malloc(samples * sizeof(unsigned int));
+ rddata = (unsigned int *) malloc(samples * sizeof(unsigned int));
 
-	tx_acq(startfreq, stopfreq, spacfreq, sampfreq, samples);
+ tx_acq(startfreq, stopfreq, spacfreq, sampfreq, samples);
 
-	alt_write_word((h2p_ctrl_out_addr), (ctrl_out | TX_OPA_EN)); // re-enable the TX opamp (default)
+ alt_write_word((h2p_ctrl_out_addr), (ctrl_out | TX_OPA_EN)); // re-enable the TX opamp (default)
 
-	// close_system();
-	munmap_peripherals();
-	close_physical_memory_device();
+ // close_system();
+ munmap_peripherals();
+ close_physical_memory_device();
 
-	// free memory
-	// free (rddata_16);
-	free (rddata);
+ // free memory
+ // free (rddata_16);
+ free (rddata);
 
-	return 0;
-}
-//
+ return 0;
+ }
+ */
 
 /* CPMG Iterate
  // rename the output to "cpmg_iterate_raw" and define GET_RAW_DATA to get raw data.
@@ -2381,5 +2393,73 @@ int main(int argc, char * argv[])
 
  return 0;
 
+ }
+ */
+
+// Magnet controller
+// rename the output to "mgnt_ctrl"
+// this program controls the magnet controller fsm code
+int main(int argc, char * argv[])
+{
+	// input parameters
+	double chg_plen_us = atof(argv[1]); // charging pulse length
+	double chg_dlen_us = atof(argv[2]); // charging delay length
+	double dchg_plen_us = atof(argv[3]); // discharging pulse length
+	double dchg_dlen_us = atof(argv[4]); // discharging delay length
+	unsigned int n = atoi(argv[5]); // number of repetition
+	unsigned int d = atoi(argv[6]); // delay after sequence
+	double clk_freq = atof(argv[7]); // clock frequency used by the finite state machine
+
+	open_physical_memory_device();
+	mmap_peripherals();
+	init_default_system_param();
+
+	// read out the control output before writing it
+	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
+
+	// write t1-IR measurement parameters (put both to 0 if IR is not desired)
+	alt_write_word(h2p_mgnt_chg_plen_addr,
+			(unsigned int) (chg_plen_us * clk_freq));
+	alt_write_word(h2p_mgnt_chg_dlen_addr,
+			(unsigned int) (chg_dlen_us * clk_freq));
+	alt_write_word(h2p_mgnt_dchg_plen_addr,
+			(unsigned int) (dchg_plen_us * clk_freq));
+	alt_write_word(h2p_mgnt_dchg_dlen_addr,
+			(unsigned int) (dchg_dlen_us * clk_freq));
+	alt_write_word(h2p_mgnt_n_addr, n);
+	alt_write_word(h2p_mgnt_d_addr, d);
+
+	// reset the magnet controller
+	ctrl_out |= MGNT_RST;
+	alt_write_word(h2p_ctrl_out_addr, ctrl_out);
+	ctrl_out &= ~(MGNT_RST);
+	alt_write_word(h2p_ctrl_out_addr, ctrl_out);
+
+	// start the FSM
+	ctrl_out |= MGNT_START;
+	alt_write_word(h2p_ctrl_out_addr, ctrl_out);
+	ctrl_out &= ~(MGNT_START);
+	alt_write_word(h2p_ctrl_out_addr, ctrl_out);
+
+	// close_system();
+	munmap_peripherals();
+	close_physical_memory_device();
+
+	return 0;
+}
+//
+
+/* standalone function // this main function doesn't rely on any other main functions (e.g. to initialize the system) to work on, unlike the main functions above
+ int main(int argc, char * argv[])
+ {
+ // init
+ open_physical_memory_device();
+ mmap_peripherals();
+ init_default_system_param();
+
+ // close_system();
+ munmap_peripherals();
+ close_physical_memory_device();
+ return 0;
  }
  */

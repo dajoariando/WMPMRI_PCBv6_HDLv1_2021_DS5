@@ -113,6 +113,15 @@ void *h2p_echo_skip_hw_addr = NULL; // skip echoes in hardware
 volatile unsigned int *h2p_dconv_firI_addr = NULL; // the fir I address
 volatile unsigned int *h2p_dconv_firQ_addr = NULL; // the fir Q address
 
+// magnet addresses
+volatile unsigned int *h2p_mgnt_chg_plen_addr;
+volatile unsigned int *h2p_mgnt_chg_dlen_addr;
+volatile unsigned int *h2p_mgnt_dchg_plen_addr;
+volatile unsigned int *h2p_mgnt_dchg_dlen_addr;
+volatile unsigned int *h2p_mgnt_n_addr;
+volatile unsigned int *h2p_mgnt_d_addr;
+
+// fifo addresses
 volatile unsigned int *h2p_dmadummy_addr = NULL;
 volatile unsigned int *h2p_fifoin_dummy_addr = NULL;
 volatile unsigned int *h2p_fifoout_dummy_addr = NULL;
