@@ -62,10 +62,10 @@ void mmap_fpga_peripherals()
 	// is a multiple of your page size and access your peripheral by a specific
 	// offset from the mapped address.
 
-	h2f_lw_axi_master = mmap(NULL, h2f_lw_axi_master_span,
+	lwaxi_base = mmap(NULL, h2f_lw_axi_master_span,
 			PROT_READ | PROT_WRITE, MAP_SHARED, fd_dev_mem,
 			h2f_lw_axi_master_ofst);
-	if (h2f_lw_axi_master == MAP_FAILED)
+	if (lwaxi_base == MAP_FAILED)
 	{
 		printf("Error: h2f_lw_axi_master mmap() failed.\n");
 		printf("    errno = %s\n", strerror(errno));
@@ -73,9 +73,9 @@ void mmap_fpga_peripherals()
 		exit (EXIT_FAILURE);
 	}
 
-	h2f_axi_master = mmap(NULL, h2f_axi_master_span, PROT_READ | PROT_WRITE,
+	axi_base = mmap(NULL, h2f_axi_master_span, PROT_READ | PROT_WRITE,
 			MAP_SHARED, fd_dev_mem, h2f_axi_master_ofst);
-	if (h2f_axi_master == MAP_FAILED)
+	if (axi_base == MAP_FAILED)
 	{
 		printf("Error: h2f_axi_master mmap() failed.\n");
 		printf("    errno = %s\n", strerror(errno));
@@ -83,61 +83,61 @@ void mmap_fpga_peripherals()
 		exit (EXIT_FAILURE);
 	}
 
-	h2p_ctrl_out_addr = h2f_lw_axi_master + CTRL_OUT_BASE;
-	h2p_ctrl_in_addr = h2f_lw_axi_master + CTRL_IN_BASE;
-	h2p_pulse1_addr = h2f_lw_axi_master + NMR_PARAMETERS_PULSE_90DEG_BASE;
-	h2p_pulse2_addr = h2f_lw_axi_master + NMR_PARAMETERS_PULSE_180DEG_BASE;
-	h2p_delay1_addr = h2f_lw_axi_master + NMR_PARAMETERS_DELAY_NOSIG_BASE;
-	h2p_delay2_addr = h2f_lw_axi_master + NMR_PARAMETERS_DELAY_SIG_BASE;
-	h2p_nmr_sys_pll_addr = h2f_lw_axi_master + NMR_SYS_PLL_RECONFIG_BASE;
-	h2p_echo_per_scan_addr = h2f_lw_axi_master
+	h2p_ctrl_out_addr = lwaxi_base + CTRL_OUT_BASE;
+	h2p_ctrl_in_addr = lwaxi_base + CTRL_IN_BASE;
+	h2p_pulse1_addr = lwaxi_base + NMR_PARAMETERS_PULSE_90DEG_BASE;
+	h2p_pulse2_addr = lwaxi_base + NMR_PARAMETERS_PULSE_180DEG_BASE;
+	h2p_delay1_addr = lwaxi_base + NMR_PARAMETERS_DELAY_NOSIG_BASE;
+	h2p_delay2_addr = lwaxi_base + NMR_PARAMETERS_DELAY_SIG_BASE;
+	h2p_nmr_sys_pll_addr = lwaxi_base + NMR_SYS_PLL_RECONFIG_BASE;
+	h2p_echo_per_scan_addr = lwaxi_base
 			+ NMR_PARAMETERS_ECHOES_PER_SCAN_BASE;
 	// h2p_i2c_ext_addr				= h2f_lw_axi_master + I2C_EXT_BASE;
-	h2p_i2c_int_addr = h2f_lw_axi_master + I2C_INT_BASE;
-	h2p_adc_fifo_addr = h2f_lw_axi_master + ADC_FIFO_MEM_OUT_BASE;
-	h2p_adc_fifo_status_addr = h2f_lw_axi_master + ADC_FIFO_MEM_IN_CSR_BASE;
-	h2p_adc_samples_per_echo_addr = h2f_lw_axi_master
+	h2p_i2c_int_addr = lwaxi_base + I2C_INT_BASE;
+	h2p_adc_fifo_addr = lwaxi_base + ADC_FIFO_MEM_OUT_BASE;
+	h2p_adc_fifo_status_addr = lwaxi_base + ADC_FIFO_MEM_IN_CSR_BASE;
+	h2p_adc_samples_per_echo_addr = lwaxi_base
 			+ NMR_PARAMETERS_SAMPLES_PER_ECHO_BASE;
-	h2p_init_adc_delay_addr = h2f_lw_axi_master
+	h2p_init_adc_delay_addr = lwaxi_base
 			+ NMR_PARAMETERS_INIT_DELAY_BASE;
-	h2p_rx_delay_addr = h2f_lw_axi_master + NMR_PARAMETERS_RX_DELAY_BASE;
+	h2p_rx_delay_addr = lwaxi_base + NMR_PARAMETERS_RX_DELAY_BASE;
 
-	h2p_dac_preamp_addr = h2f_lw_axi_master + DAC_PREAMP_BASE;
-	h2p_dac_grad_addr = h2f_lw_axi_master + DAC_GRAD_BASE;
+	h2p_dac_preamp_addr = lwaxi_base + DAC_PREAMP_BASE;
+	h2p_dac_grad_addr = lwaxi_base + DAC_GRAD_BASE;
 
-	h2p_spi_mtch_ntwrk_addr = h2f_lw_axi_master + SPI_MTCH_NTWRK_BASE;
-	h2p_spi_afe_relays_addr = h2f_lw_axi_master + SPI_AFE_RELAYS_BASE;
-	h2p_analyzer_pll_addr = h2f_lw_axi_master + ANALYZER_PLL_RECONFIG_BASE;
-	h2p_t1_pulse = h2f_lw_axi_master + NMR_PARAMETERS_PULSE_T1_BASE;
-	h2p_t1_delay = h2f_lw_axi_master + NMR_PARAMETERS_DELAY_T1_BASE;
-	h2p_dma_addr = h2f_lw_axi_master + DMA_FIFO_BASE;
-	h2p_dconvi_dma_addr = h2f_lw_axi_master + DMA_DCONVI_BASE;
+	h2p_spi_mtch_ntwrk_addr = lwaxi_base + SPI_MTCH_NTWRK_BASE;
+	h2p_spi_afe_relays_addr = lwaxi_base + SPI_AFE_RELAYS_BASE;
+	h2p_analyzer_pll_addr = lwaxi_base + ANALYZER_PLL_RECONFIG_BASE;
+	h2p_t1_pulse = lwaxi_base + NMR_PARAMETERS_PULSE_T1_BASE;
+	h2p_t1_delay = lwaxi_base + NMR_PARAMETERS_DELAY_T1_BASE;
+	h2p_dma_addr = lwaxi_base + DMA_FIFO_BASE;
+	h2p_dconvi_dma_addr = lwaxi_base + DMA_DCONVI_BASE;
 	//h2p_dconvq_dma_addr				= h2f_lw_axi_master + DMA_DCONVQ_BASE;
-	h2p_dconvi_addr = h2f_lw_axi_master + DCONV_FIFO_MEM_OUT_BASE;
+	h2p_dconvi_addr = lwaxi_base + DCONV_FIFO_MEM_OUT_BASE;
 	//h2p_dconvq_addr					= h2f_lw_axi_master + DCONV_FIFO_MEM_Q_OUT_BASE;
-	h2p_dconvi_csr_addr = h2f_lw_axi_master + DCONV_FIFO_MEM_IN_CSR_BASE;
+	h2p_dconvi_csr_addr = lwaxi_base + DCONV_FIFO_MEM_IN_CSR_BASE;
 	//h2p_dconvq_csr_addr				= h2f_lw_axi_master + DCONV_FIFO_MEM_Q_IN_CSR_BASE;
-	h2p_adc_val_sub = h2f_lw_axi_master + NMR_PARAMETERS_ADC_VAL_SUB_BASE;
-	h2p_dec_fact_addr = h2f_lw_axi_master + NMR_PARAMETERS_DEC_FACT_BASE;
-	h2p_echo_skip_hw_addr = h2f_lw_axi_master + NMR_PARAMETERS_ECHO_SKIP_BASE;
+	h2p_adc_val_sub = lwaxi_base + NMR_PARAMETERS_ADC_VAL_SUB_BASE;
+	h2p_dec_fact_addr = lwaxi_base + NMR_PARAMETERS_DEC_FACT_BASE;
+	h2p_echo_skip_hw_addr = lwaxi_base + NMR_PARAMETERS_ECHO_SKIP_BASE;
 
-	h2p_dconv_firI_addr = h2f_lw_axi_master + DCONV_FIR_BASE;
-	h2p_dconv_firQ_addr = h2f_lw_axi_master + DCONV_FIR_Q_BASE;
+	h2p_dconv_firI_addr = lwaxi_base + DCONV_FIR_BASE;
+	h2p_dconv_firQ_addr = lwaxi_base + DCONV_FIR_Q_BASE;
 
-	h2p_sdram_addr = h2f_axi_master + SDRAM_BASE;
-	h2p_switches_addr = h2f_axi_master + SWITCHES_BASE;
+	h2p_sdram_addr = axi_base + SDRAM_BASE;
+	h2p_switches_addr = axi_base + SWITCHES_BASE;
 
 	// magnet memmory map magnet addresses
-	h2p_mgnt_chg_plen_addr = h2f_lw_axi_master
+	h2p_mgnt_chg_plen_addr = lwaxi_base
 			+ NMR_PARAMETERS_MGNT_CHG_PLEN_BASE;
-	h2p_mgnt_chg_dlen_addr = h2f_lw_axi_master
+	h2p_mgnt_chg_dlen_addr = lwaxi_base
 			+ NMR_PARAMETERS_MGNT_CHG_DLEN_BASE;
-	h2p_mgnt_dchg_plen_addr = h2f_lw_axi_master
+	h2p_mgnt_dchg_plen_addr = lwaxi_base
 			+ NMR_PARAMETERS_MGNT_DCHG_PLEN_BASE;
-	h2p_mgnt_dchg_dlen_addr = h2f_lw_axi_master
+	h2p_mgnt_dchg_dlen_addr = lwaxi_base
 			+ NMR_PARAMETERS_MGNT_DCHG_DLEN_BASE;
-	h2p_mgnt_n_addr = h2f_lw_axi_master + NMR_PARAMETERS_MGNT_N_BASE;
-	h2p_mgnt_d_addr = h2f_lw_axi_master + NMR_PARAMETERS_MGNT_D_BASE;
+	h2p_mgnt_n_addr = lwaxi_base + NMR_PARAMETERS_MGNT_N_BASE;
+	h2p_mgnt_d_addr = lwaxi_base + NMR_PARAMETERS_MGNT_D_BASE;
 
 	// dummy code
 	//h2p_dmadummy_addr				= h2f_lw_axi_master + DMA_DUMMY_BASE;
@@ -154,7 +154,7 @@ void mmap_fpga_peripherals()
 void munmap_fpga_peripherals()
 {
 
-	if (munmap(h2f_lw_axi_master, h2f_lw_axi_master_span) != 0)
+	if (munmap(lwaxi_base, h2f_lw_axi_master_span) != 0)
 	{
 		printf("Error: h2f_lw_axi_master munmap() failed\n");
 		printf("    errno = %s\n", strerror(errno));
@@ -162,7 +162,7 @@ void munmap_fpga_peripherals()
 		exit (EXIT_FAILURE);
 	}
 
-	h2f_lw_axi_master = NULL;
+	lwaxi_base = NULL;
 	fpga_leds = NULL;
 	fpga_switches = NULL;
 
@@ -2416,6 +2416,12 @@ int main(int argc, char * argv[])
 
 	// read out the control output before writing it
 	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
+
+	// set pll for CPMG
+	Set_PLL(h2p_nmr_sys_pll_addr, 0, clk_freq, 0.5, DISABLE_MESSAGE);
+	Reset_PLL(h2p_ctrl_out_addr, PLL_NMR_SYS_RST_ofst, ctrl_out);
+	Set_DPS(h2p_nmr_sys_pll_addr, 0, 0, DISABLE_MESSAGE);
+	Wait_PLL_To_Lock(h2p_ctrl_in_addr, PLL_NMR_SYS_lock_ofst);
 
 	// write t1-IR measurement parameters (put both to 0 if IR is not desired)
 	alt_write_word(h2p_mgnt_chg_plen_addr,

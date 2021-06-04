@@ -60,12 +60,12 @@ void *hps_gpio = NULL;
 size_t hps_gpio_span = ALT_GPIO1_UB_ADDR - ALT_GPIO1_LB_ADDR + 1;
 size_t hps_gpio_ofst = ALT_GPIO1_OFST;
 
-void *h2f_lw_axi_master = NULL;
+void *lwaxi_base = NULL;
 size_t h2f_lw_axi_master_span = ALT_LWFPGASLVS_UB_ADDR - ALT_LWFPGASLVS_LB_ADDR
 		+ 1;
 size_t h2f_lw_axi_master_ofst = ALT_LWFPGASLVS_OFST;
 
-void *h2f_axi_master = NULL;
+void *axi_base = NULL;
 size_t h2f_axi_master_span = HW_FPGA_AXI_SPAN;
 size_t h2f_axi_master_ofst = ALT_AXI_FPGASLVS_OFST;
 
