@@ -37,6 +37,7 @@
 #include "functions/reconfig_functions.h"
 #include "functions/tca9555_driver.h"
 #include "functions/common_functions.h"
+#include "functions/hallsens_mv2_driver.h"
 
 #include "hps_soc_system.h"
 
@@ -121,6 +122,8 @@ volatile unsigned int *h2p_mgnt_dchg_dlen_addr;
 volatile unsigned int *h2p_mgnt_n_addr;
 volatile unsigned int *h2p_mgnt_d_addr;
 
+volatile unsigned int *h2p_mgnt_hs_addr = NULL;
+
 // fifo addresses
 volatile unsigned int *h2p_dmadummy_addr = NULL;
 volatile unsigned int *h2p_fifoin_dummy_addr = NULL;
@@ -186,6 +189,7 @@ void tx_sampling(double tx_freq, double sampfreq, unsigned int samples_per_echo,
 FILE *fptr;
 unsigned int i;
 unsigned int j;
+unsigned int hs_config; // the global settings for the hall-effect sensor
 
 #ifdef GET_RAW_DATA
 int *rddata;

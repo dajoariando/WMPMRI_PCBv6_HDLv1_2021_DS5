@@ -1,4 +1,7 @@
 // offsets for output control signal
+#define MV2_INIT_ofst					(17) // magnetometer init
+#define MV2_DA_ofst						(18) // magnetometer digital/analog
+#define MV2_INV_ofst					(18) // magnetometer polarity inversion
 #define MGNT_START_ofst					(16) // start the magnet programming sequence
 #define MGNT_RST_ofst					(15) // reset the magnet programming FSM
 #define PULSE_ON_RX_ofst				(14)
@@ -18,6 +21,10 @@
 #define DAC_CLR_ofst					(0)
 
 // Output control signal to FPGA
+
+#define MV2_INIT					(1<<MV2_INIT_ofst) // magnetometer init
+#define MV2_DA						(1<<MV2_DA_ofst) // magnetometer digital/analog
+#define MV2_INV						(1<<MV2_INV_ofst) // magnetometer polarity inversion
 #define MGNT_START					(1<<MGNT_START_ofst) // start the magnet programming sequence
 #define MGNT_RST					(1<<MGNT_RST_ofst) // reset the magnet programming FSM
 #define PULSE_ON_RX					(1<<PULSE_ON_RX_ofst)
@@ -110,10 +117,14 @@
 #define CNT_I2C_default			(0)
 
 // Offsets for input status signal
+#define MV2_DR_ofst					(4)
+#define MGNT_STAT_ofst				(3) // the fsm status of the magnet programming
 #define PLL_ANALYZER_lock_ofst		(2)
 #define NMR_SEQ_run_ofst			(1)
 #define PLL_NMR_SYS_lock_ofst		(0)
 // Input status signal from FPGA
+#define MV2_DR						(1<<MV2_DR_ofst)
+#define MGNT_STAT					(1<<MGNT_STAT_ofst)
 #define PLL_ANALYZER_lock			(1<<PLL_ANALYZER_lock_ofst)
 #define NMR_SEQ_run					(1<<NMR_SEQ_run_ofst)
 #define PLL_NMR_SYS_lock			(1<<PLL_NMR_SYS_lock_ofst)

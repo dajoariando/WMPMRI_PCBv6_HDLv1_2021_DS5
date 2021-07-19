@@ -62,9 +62,8 @@ void mmap_fpga_peripherals()
 	// is a multiple of your page size and access your peripheral by a specific
 	// offset from the mapped address.
 
-	lwaxi_base = mmap(NULL, h2f_lw_axi_master_span,
-			PROT_READ | PROT_WRITE, MAP_SHARED, fd_dev_mem,
-			h2f_lw_axi_master_ofst);
+	lwaxi_base = mmap(NULL, h2f_lw_axi_master_span, PROT_READ | PROT_WRITE,
+			MAP_SHARED, fd_dev_mem, h2f_lw_axi_master_ofst);
 	if (lwaxi_base == MAP_FAILED)
 	{
 		printf("Error: h2f_lw_axi_master mmap() failed.\n");
@@ -90,16 +89,14 @@ void mmap_fpga_peripherals()
 	h2p_delay1_addr = lwaxi_base + NMR_PARAMETERS_DELAY_NOSIG_BASE;
 	h2p_delay2_addr = lwaxi_base + NMR_PARAMETERS_DELAY_SIG_BASE;
 	h2p_nmr_sys_pll_addr = lwaxi_base + NMR_SYS_PLL_RECONFIG_BASE;
-	h2p_echo_per_scan_addr = lwaxi_base
-			+ NMR_PARAMETERS_ECHOES_PER_SCAN_BASE;
+	h2p_echo_per_scan_addr = lwaxi_base + NMR_PARAMETERS_ECHOES_PER_SCAN_BASE;
 	// h2p_i2c_ext_addr				= h2f_lw_axi_master + I2C_EXT_BASE;
 	h2p_i2c_int_addr = lwaxi_base + I2C_INT_BASE;
 	h2p_adc_fifo_addr = lwaxi_base + ADC_FIFO_MEM_OUT_BASE;
 	h2p_adc_fifo_status_addr = lwaxi_base + ADC_FIFO_MEM_IN_CSR_BASE;
 	h2p_adc_samples_per_echo_addr = lwaxi_base
 			+ NMR_PARAMETERS_SAMPLES_PER_ECHO_BASE;
-	h2p_init_adc_delay_addr = lwaxi_base
-			+ NMR_PARAMETERS_INIT_DELAY_BASE;
+	h2p_init_adc_delay_addr = lwaxi_base + NMR_PARAMETERS_INIT_DELAY_BASE;
 	h2p_rx_delay_addr = lwaxi_base + NMR_PARAMETERS_RX_DELAY_BASE;
 
 	h2p_dac_preamp_addr = lwaxi_base + DAC_PREAMP_BASE;
@@ -127,17 +124,16 @@ void mmap_fpga_peripherals()
 	h2p_sdram_addr = axi_base + SDRAM_BASE;
 	h2p_switches_addr = axi_base + SWITCHES_BASE;
 
-	// magnet memmory map magnet addresses
-	h2p_mgnt_chg_plen_addr = lwaxi_base
-			+ NMR_PARAMETERS_MGNT_CHG_PLEN_BASE;
-	h2p_mgnt_chg_dlen_addr = lwaxi_base
-			+ NMR_PARAMETERS_MGNT_CHG_DLEN_BASE;
-	h2p_mgnt_dchg_plen_addr = lwaxi_base
-			+ NMR_PARAMETERS_MGNT_DCHG_PLEN_BASE;
-	h2p_mgnt_dchg_dlen_addr = lwaxi_base
-			+ NMR_PARAMETERS_MGNT_DCHG_DLEN_BASE;
+	// magnet memory map magnet addresses
+	h2p_mgnt_chg_plen_addr = lwaxi_base + NMR_PARAMETERS_MGNT_CHG_PLEN_BASE;
+	h2p_mgnt_chg_dlen_addr = lwaxi_base + NMR_PARAMETERS_MGNT_CHG_DLEN_BASE;
+	h2p_mgnt_dchg_plen_addr = lwaxi_base + NMR_PARAMETERS_MGNT_DCHG_PLEN_BASE;
+	h2p_mgnt_dchg_dlen_addr = lwaxi_base + NMR_PARAMETERS_MGNT_DCHG_DLEN_BASE;
 	h2p_mgnt_n_addr = lwaxi_base + NMR_PARAMETERS_MGNT_N_BASE;
 	h2p_mgnt_d_addr = lwaxi_base + NMR_PARAMETERS_MGNT_D_BASE;
+
+	// hall-effect sensor
+	h2p_mgnt_hs_addr = lwaxi_base + HS_SPI_BASE;
 
 	// dummy code
 	//h2p_dmadummy_addr				= h2f_lw_axi_master + DMA_DUMMY_BASE;
@@ -2396,64 +2392,95 @@ void close_system()
  }
  */
 
-// Magnet controller
-// rename the output to "mgnt_ctrl"
-// this program controls the magnet controller fsm code
+/* Magnet controller
+ // rename the output to "mgnt_ctrl"
+ // this program controls the magnet controller fsm code
+ int main(int argc, char * argv[])
+ {
+ // input parameters
+ double chg_plen_us = atof(argv[1]); // charging pulse length
+ double chg_dlen_us = atof(argv[2]); // charging delay length
+ double dchg_plen_us = atof(argv[3]); // discharging pulse length
+ double dchg_dlen_us = atof(argv[4]); // discharging delay length
+ unsigned int n = atoi(argv[5]); // number of repetition
+ unsigned int d = atoi(argv[6]); // delay after sequence
+ double clk_freq = atof(argv[7]); // clock frequency used by the finite state machine
+
+ open_physical_memory_device();
+ mmap_peripherals();
+ init_default_system_param();
+
+ // read out the control output before writing it
+ ctrl_out = alt_read_word(h2p_ctrl_out_addr);
+
+ // set pll for CPMG
+ Set_PLL(h2p_nmr_sys_pll_addr, 0, clk_freq, 0.5, DISABLE_MESSAGE);
+ Reset_PLL(h2p_ctrl_out_addr, PLL_NMR_SYS_RST_ofst, ctrl_out);
+ Set_DPS(h2p_nmr_sys_pll_addr, 0, 0, DISABLE_MESSAGE);
+ Wait_PLL_To_Lock(h2p_ctrl_in_addr, PLL_NMR_SYS_lock_ofst);
+
+ // write t1-IR measurement parameters (put both to 0 if IR is not desired)
+ alt_write_word(h2p_mgnt_chg_plen_addr,
+ (unsigned int) (chg_plen_us * clk_freq));
+ alt_write_word(h2p_mgnt_chg_dlen_addr,
+ (unsigned int) (chg_dlen_us * clk_freq));
+ alt_write_word(h2p_mgnt_dchg_plen_addr,
+ (unsigned int) (dchg_plen_us * clk_freq));
+ alt_write_word(h2p_mgnt_dchg_dlen_addr,
+ (unsigned int) (dchg_dlen_us * clk_freq));
+ alt_write_word(h2p_mgnt_n_addr, n);
+ alt_write_word(h2p_mgnt_d_addr, d);
+
+ // reset the magnet controller
+ ctrl_out |= MGNT_RST;
+ alt_write_word(h2p_ctrl_out_addr, ctrl_out);
+ ctrl_out &= ~(MGNT_RST);
+ alt_write_word(h2p_ctrl_out_addr, ctrl_out);
+
+ // start the FSM
+ ctrl_out |= MGNT_START;
+ alt_write_word(h2p_ctrl_out_addr, ctrl_out);
+ ctrl_out &= ~(MGNT_START);
+ alt_write_word(h2p_ctrl_out_addr, ctrl_out);
+
+ // close_system();
+ munmap_peripherals();
+ close_physical_memory_device();
+
+ return 0;
+ }
+ */
+
+// standalone function
+// this main function doesn't rely on any other main functions (e.g. to initialize the system) to work on, unlike the main functions above
 int main(int argc, char * argv[])
 {
-	// input parameters
-	double chg_plen_us = atof(argv[1]); // charging pulse length
-	double chg_dlen_us = atof(argv[2]); // charging delay length
-	double dchg_plen_us = atof(argv[3]); // discharging pulse length
-	double dchg_dlen_us = atof(argv[4]); // discharging delay length
-	unsigned int n = atoi(argv[5]); // number of repetition
-	unsigned int d = atoi(argv[6]); // delay after sequence
-	double clk_freq = atof(argv[7]); // clock frequency used by the finite state machine
-
+	// init
 	open_physical_memory_device();
 	mmap_peripherals();
 	init_default_system_param();
 
-	// read out the control output before writing it
-	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
+	unsigned int x[10], y[10], z[10];
 
-	// set pll for CPMG
-	Set_PLL(h2p_nmr_sys_pll_addr, 0, clk_freq, 0.5, DISABLE_MESSAGE);
-	Reset_PLL(h2p_ctrl_out_addr, PLL_NMR_SYS_RST_ofst, ctrl_out);
-	Set_DPS(h2p_nmr_sys_pll_addr, 0, 0, DISABLE_MESSAGE);
-	Wait_PLL_To_Lock(h2p_ctrl_in_addr, PLL_NMR_SYS_lock_ofst);
+	hs_init(h2p_mgnt_hs_addr, ENABLE_MESSAGE);
 
-	// write t1-IR measurement parameters (put both to 0 if IR is not desired)
-	alt_write_word(h2p_mgnt_chg_plen_addr,
-			(unsigned int) (chg_plen_us * clk_freq));
-	alt_write_word(h2p_mgnt_chg_dlen_addr,
-			(unsigned int) (chg_dlen_us * clk_freq));
-	alt_write_word(h2p_mgnt_dchg_plen_addr,
-			(unsigned int) (dchg_plen_us * clk_freq));
-	alt_write_word(h2p_mgnt_dchg_dlen_addr,
-			(unsigned int) (dchg_dlen_us * clk_freq));
-	alt_write_word(h2p_mgnt_n_addr, n);
-	alt_write_word(h2p_mgnt_d_addr, d);
-
-	// reset the magnet controller
-	ctrl_out |= MGNT_RST;
-	alt_write_word(h2p_ctrl_out_addr, ctrl_out);
-	ctrl_out &= ~(MGNT_RST);
-	alt_write_word(h2p_ctrl_out_addr, ctrl_out);
-
-	// start the FSM
-	ctrl_out |= MGNT_START;
-	alt_write_word(h2p_ctrl_out_addr, ctrl_out);
-	ctrl_out &= ~(MGNT_START);
-	alt_write_word(h2p_ctrl_out_addr, ctrl_out);
+	int ex = 0;
+	while (1)
+	{
+		hs_rd_xyz(h2p_mgnt_hs_addr, x, y, z, 10);
+		printf("x = %fmT, y = %fmT, z = %fmT\n", conv_to_Tesla(x[0]) * 1e3,
+				conv_to_Tesla(y[0]) * 1e3, conv_to_Tesla(z[0]) * 1e3);
+		// printf("x = %d, y = %d, z = %d\n\n", x[1], y[1], z[1]);
+		usleep(500000);
+		if (ex)
+			break;
+	}
 
 	// close_system();
 	munmap_peripherals();
 	close_physical_memory_device();
-
 	return 0;
 }
-//
 
 /* standalone function // this main function doesn't rely on any other main functions (e.g. to initialize the system) to work on, unlike the main functions above
  int main(int argc, char * argv[])
