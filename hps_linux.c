@@ -1694,7 +1694,7 @@ void noise_iterate(double cpmg_freq, long unsigned scan_spacing_us,
 
 }
 
-void tx_sampling(double tx_freq, double samp_freq,
+void tx_sampling_async(double tx_freq, double samp_freq,
 		unsigned int tx_num_of_samples, char * filename)
 {
 
@@ -1759,6 +1759,75 @@ void tx_sampling(double tx_freq, double samp_freq,
 
 }
 
+void tx_sampling_sync(double tx_freq, unsigned int tx_num_of_samples,
+		char * filename)
+{
+
+	uint8_t ph_cycl_en = 0;
+
+// read the current ctrl_out
+	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
+
+// KEEP THIS CODE AND ENABLE IT IF YOU USE C-ONLY, OPPOSED TO USING PYTHON
+// activate signal_coup path (from the directional coupler) for the receiver
+// write_i2c_int_cnt (DISABLE, RX_IN_SEL_1_msk, DISABLE_MESSAGE);
+// write_i2c_int_cnt (ENABLE, RX_IN_SEL_2_msk, DISABLE_MESSAGE);
+
+// set parameters for acquisition (using CPMG registers and CPMG sequence: not a good practice)
+	alt_write_word((h2p_pulse1_addr), 0); // random safe number
+	alt_write_word((h2p_delay1_addr), 0); // random safe number
+	alt_write_word((h2p_pulse2_addr), 0); // random safe number
+	alt_write_word((h2p_delay2_addr), tx_num_of_samples * 4 * 2); // *4 is because the system clock is 4*ADC clock. *2 factor is to increase the delay_window to about 2*acquisition window for safety.
+	alt_write_word((h2p_init_adc_delay_addr),
+			(unsigned int) (tx_num_of_samples / 2)); // put adc acquisition window exactly at the middle of the delay window
+	alt_write_word((h2p_echo_per_scan_addr), 1);
+	alt_write_word((h2p_adc_samples_per_echo_addr), tx_num_of_samples);
+
+// set pll for the tx sampling
+	//Set_PLL(h2p_analyzer_pll_addr, 0, tx_freq, 0.5, DISABLE_MESSAGE);
+	//Set_PLL(h2p_analyzer_pll_addr, 1, tx_freq, 0.5, DISABLE_MESSAGE);
+	//Set_PLL(h2p_analyzer_pll_addr, 2, tx_freq, 0.5, DISABLE_MESSAGE);
+	//Set_PLL(h2p_analyzer_pll_addr, 3, tx_freq, 0.5, DISABLE_MESSAGE);
+	//Reset_PLL(h2p_ctrl_out_addr, PLL_ANALYZER_RST_ofst, ctrl_out);
+	//Wait_PLL_To_Lock(h2p_ctrl_in_addr, PLL_ANALYZER_lock_ofst);
+	//Set_DPS(h2p_analyzer_pll_addr, 0, 0, DISABLE_MESSAGE);
+	//Set_DPS(h2p_analyzer_pll_addr, 1, 90, DISABLE_MESSAGE);
+	//Set_DPS(h2p_analyzer_pll_addr, 2, 180, DISABLE_MESSAGE);
+	//Set_DPS(h2p_analyzer_pll_addr, 3, 270, DISABLE_MESSAGE);
+	//Wait_PLL_To_Lock(h2p_ctrl_in_addr, PLL_ANALYZER_lock_ofst);
+
+// enable PLL_analyzer path, disable RF gate path
+	// ctrl_out &= ~(NMR_CLK_GATE_AVLN);
+	// alt_write_word((h2p_ctrl_out_addr), ctrl_out);
+
+	// disable PLL_analyzer path and enable the default RF gate path
+	ctrl_out |= NMR_CLK_GATE_AVLN;
+	alt_write_word((h2p_ctrl_out_addr), ctrl_out);
+
+// enable transmit on acquisition
+	ctrl_out |= PULSE_ON_RX;
+	alt_write_word((h2p_ctrl_out_addr), ctrl_out);
+	usleep(1);
+
+	runFSM(tx_freq * 16, ph_cycl_en, tx_num_of_samples, filename, SAV_INDV_SCAN,
+			RD_DATA_VIA_SDRAM_OR_FIFO, RD_FIFO);
+
+// disable PLL_analyzer path and enable the default RF gate path
+	// ctrl_out |= NMR_CLK_GATE_AVLN;
+	// alt_write_word((h2p_ctrl_out_addr), ctrl_out);
+
+// disable transmit on acquisition
+	ctrl_out &= ~(PULSE_ON_RX);
+	alt_write_word((h2p_ctrl_out_addr), ctrl_out);
+	usleep(1);
+
+// KEEP THIS CODE AND ENABLE IT IF YOU USE C-ONLY, OPPOSED TO USING PYTHON
+// activate normal signal path for the receiver
+// write_i2c_int_cnt (ENABLE, RX_IN_SEL_1_msk, DISABLE_MESSAGE);
+// write_i2c_int_cnt (DISABLE, RX_IN_SEL_2_msk, DISABLE_MESSAGE);
+
+}
+
 void tune_board(double freq)
 {
 //double c_idx;
@@ -1783,11 +1852,11 @@ void tune_board(double freq)
 	usleep(10000); // wait for the v_varac & v_bias to settle down
 }
 
-void tx_acq(double startfreq, double stopfreq, double spacfreq, double sampfreq,
-		unsigned int nsamples)
+void tx_acq_async(double startfreq, double stopfreq, double spacfreq,
+		double sampfreq, unsigned int nsamples)
 {
 
-// buffer in the fpga needs to be an even number, therefore the number of samples should be even as well
+	// buffer in the fpga needs to be an even number, therefore the number of samples should be even as well
 	if (nsamples % 2)
 	{
 		nsamples++;
@@ -1795,37 +1864,37 @@ void tx_acq(double startfreq, double stopfreq, double spacfreq, double sampfreq,
 
 	create_measurement_folder("tx_acq");
 
-// print matlab script to analyze datas
+	// print matlab script to analyze datas
 	sprintf(pathname, "current_folder.txt");
 	fptr = fopen(pathname, "w");
 	fprintf(fptr, "%s\n", foldername);
 	fclose (fptr);
 
-// print matlab script to analyze datas
+	// print matlab script to analyze datas
 	sprintf(pathname, "measurement_history_matlab_script.txt");
 	fptr = fopen(pathname, "a");
 	fprintf(fptr, "tx_acq([data_folder,'%s']);\n", foldername);
 	fclose(fptr);
 
-// print the NMR acquired settings
-//sprintf(pathname,"%s/matlab_settings.txt",foldername);	// put the data into the data folder
-//fptr = fopen(pathname, "a");
-//fprintf(fptr,"%f\n", startfreq);
-//fprintf(fptr,"%f\n", stopfreq);
-//fprintf(fptr,"%f\n", spacfreq);
-//fprintf(fptr,"%d\n", nsamples);
-//fclose(fptr);
+	// print the NMR acquired settings
+	//sprintf(pathname,"%s/matlab_settings.txt",foldername);	// put the data into the data folder
+	//fptr = fopen(pathname, "a");
+	//fprintf(fptr,"%f\n", startfreq);
+	//fprintf(fptr,"%f\n", stopfreq);
+	//fprintf(fptr,"%f\n", spacfreq);
+	//fprintf(fptr,"%d\n", nsamples);
+	//fclose(fptr);
 
-//sprintf(pathname,"%s/readable_settings.txt",foldername);	// put the data into the data folder
-//fptr = fopen(pathname, "a");
-//fprintf(fptr,"Start frequency: %f\n", startfreq);
-//fprintf(fptr,"Stop frequency: %f\n", stopfreq);
-//fprintf(fptr,"Spacing frequency: %f\n", spacfreq);
-//fprintf(fptr,"Number of samples: %d\n", nsamples);
-//fclose(fptr);
-//
+	//sprintf(pathname,"%s/readable_settings.txt",foldername);	// put the data into the data folder
+	//fptr = fopen(pathname, "a");
+	//fprintf(fptr,"Start frequency: %f\n", startfreq);
+	//fprintf(fptr,"Stop frequency: %f\n", stopfreq);
+	//fprintf(fptr,"Spacing frequency: %f\n", spacfreq);
+	//fprintf(fptr,"Number of samples: %d\n", nsamples);
+	//fclose(fptr);
+	//
 
-// print general measurement settings
+	// print general measurement settings
 	sprintf(pathname, "%s/acqu.par", foldername);
 	fptr = fopen(pathname, "a");
 	fprintf(fptr, "freqSta = %4.3f\n", startfreq);
@@ -1842,8 +1911,73 @@ void tx_acq(double startfreq, double stopfreq, double spacfreq, double sampfreq,
 	for (ifreq = startfreq; ifreq < stopfreq; ifreq += spacfreq)
 	{
 		snprintf(filename, 100, "tx_acq_%4.3f", ifreq);
-// printf("freq: %4.3f\n", ifreq);
-		tx_sampling(ifreq, sampfreq, nsamples, filename);
+		// printf("freq: %4.3f\n", ifreq);
+		tx_sampling_async(ifreq, sampfreq, nsamples, filename);
+		usleep(1); // this delay is necessary. If it's not here, the system will not crash but the i2c will stop working (?), and the reading length is incorrect
+	}
+
+}
+
+void tx_acq_sync(double startfreq, double stopfreq, double spacfreq,
+		unsigned int nsamples)
+{
+
+	// buffer in the fpga needs to be an even number, therefore the number of samples should be even as well
+	if (nsamples % 2)
+	{
+		nsamples++;
+	}
+
+	create_measurement_folder("tx_acq");
+
+	// print matlab script to analyze datas
+	sprintf(pathname, "current_folder.txt");
+	fptr = fopen(pathname, "w");
+	fprintf(fptr, "%s\n", foldername);
+	fclose (fptr);
+
+	// print matlab script to analyze datas
+	sprintf(pathname, "measurement_history_matlab_script.txt");
+	fptr = fopen(pathname, "a");
+	fprintf(fptr, "tx_acq([data_folder,'%s']);\n", foldername);
+	fclose(fptr);
+
+	// print the NMR acquired settings
+	//sprintf(pathname,"%s/matlab_settings.txt",foldername);	// put the data into the data folder
+	//fptr = fopen(pathname, "a");
+	//fprintf(fptr,"%f\n", startfreq);
+	//fprintf(fptr,"%f\n", stopfreq);
+	//fprintf(fptr,"%f\n", spacfreq);
+	//fprintf(fptr,"%d\n", nsamples);
+	//fclose(fptr);
+
+	//sprintf(pathname,"%s/readable_settings.txt",foldername);	// put the data into the data folder
+	//fptr = fopen(pathname, "a");
+	//fprintf(fptr,"Start frequency: %f\n", startfreq);
+	//fprintf(fptr,"Stop frequency: %f\n", stopfreq);
+	//fprintf(fptr,"Spacing frequency: %f\n", spacfreq);
+	//fprintf(fptr,"Number of samples: %d\n", nsamples);
+	//fclose(fptr);
+	//
+
+	// print general measurement settings
+	sprintf(pathname, "%s/acqu.par", foldername);
+	fptr = fopen(pathname, "a");
+	fprintf(fptr, "freqSta = %4.3f\n", startfreq);
+	fprintf(fptr, "freqSto = %4.3f\n", stopfreq);
+	fprintf(fptr, "freqSpa = %4.3f\n", spacfreq);
+	fprintf(fptr, "nSamples = %d\n", nsamples);
+	fclose(fptr);
+
+	char * filename;
+	double ifreq = 0;
+	filename = (char*) malloc(100 * sizeof(char));
+	stopfreq += (spacfreq / 2); // the (spacfreq/2) factor is to compensate double comparison error. double cannot be compared with '==' operator !
+	for (ifreq = startfreq; ifreq < stopfreq; ifreq += spacfreq)
+	{
+		snprintf(filename, 100, "tx_acq_%4.3f", ifreq);
+		// printf("freq: %4.3f\n", ifreq);
+		tx_sampling_sync(ifreq, nsamples, filename);
 		usleep(1); // this delay is necessary. If it's not here, the system will not crash but the i2c will stop working (?), and the reading length is incorrect
 	}
 
@@ -2019,7 +2153,49 @@ void close_system()
  }
  */
 
-/* Wobble (rename the output to "wobble")
+/* Wobble Sync (rename the output to "wobble_sync")
+ int main(int argc, char * argv[])
+ {
+
+ // the wobble function startfreq is minimum 1 MHz, otherwise the TX PLL (h2p_analyzer_pll_addr) won't lock.
+
+ // input parameters
+ double startfreq = atof(argv[1]);
+ double stopfreq = atof(argv[2]);
+ double spacfreq = atof(argv[3]);
+
+ open_physical_memory_device();
+ mmap_peripherals();
+ // init_default_system_param();
+
+ ctrl_out = alt_read_word(h2p_ctrl_out_addr);
+ alt_write_word((h2p_ctrl_out_addr), (ctrl_out & (~TX_OPA_SD_MSK))); // mask out the TX_OPA_SD signal in the fpga (disable TX Opamp shutdown during reception)
+
+ //WOBBLE
+ // unsigned int wobb_samples = (unsigned int) (lround(sampfreq / spacfreq)); // the number of ADC samples taken
+ unsigned int wobb_samples = (unsigned int) (lround(stopfreq / spacfreq)); // the number of ADC samples taken
+
+ // memory allocation
+ // rddata_16 = (unsigned int*) malloc(wobb_samples * sizeof(unsigned int));
+ rddata = (int *) malloc(wobb_samples * sizeof(int));
+
+ tx_acq_sync(startfreq, stopfreq, spacfreq, wobb_samples);
+
+ alt_write_word((h2p_ctrl_out_addr), (ctrl_out | TX_OPA_SD_MSK)); // re-enable the TX_OPA_SD signal in the fpga
+
+ // close_system();
+ munmap_peripherals();
+ close_physical_memory_device();
+
+ // free memory
+ // free (rddata_16);
+ free (rddata);
+
+ return 0;
+ }
+ */
+
+/* Wobble Async (rename the output to "wobble_async")
  int main(int argc, char * argv[])
  {
 
@@ -2039,13 +2215,14 @@ void close_system()
  alt_write_word((h2p_ctrl_out_addr), (ctrl_out & (~TX_OPA_SD_MSK))); // mask out the TX_OPA_SD signal in the fpga (disable TX Opamp shutdown during reception)
 
  //WOBBLE
- unsigned int wobb_samples = (unsigned int) (lround(sampfreq / spacfreq)); // the number of ADC samples taken
+ // unsigned int wobb_samples = (unsigned int) (lround(sampfreq / spacfreq)); // the number of ADC samples taken
+ unsigned int wobb_samples = (unsigned int) (lround(stopfreq / spacfreq)); // the number of ADC samples taken
 
  // memory allocation
  // rddata_16 = (unsigned int*) malloc(wobb_samples * sizeof(unsigned int));
  rddata = (int *) malloc(wobb_samples * sizeof(int));
 
- tx_acq(startfreq, stopfreq, spacfreq, sampfreq, wobb_samples);
+ tx_acq_async(startfreq, stopfreq, spacfreq, sampfreq, wobb_samples);
 
  alt_write_word((h2p_ctrl_out_addr), (ctrl_out | TX_OPA_SD_MSK)); // re-enable the TX_OPA_SD signal in the fpga
 
@@ -2233,66 +2410,66 @@ void close_system()
  }
  */
 
-/* FID Iterate (rename the output to "fid")
- int main(int argc, char * argv[])
- {
+// FID Iterate (rename the output to "fid")
+int main(int argc, char * argv[])
+{
 
- // input parameters
- double cpmg_freq = atof(argv[1]);
- double pulse2_us = atof(argv[2]);
- double pulse2_dtcl = atof(argv[3]);
- long unsigned scan_spacing_us = atoi(argv[4]);
- unsigned int samples_per_echo = atoi(argv[5]);
- unsigned int number_of_iteration = atoi(argv[6]);
- unsigned int tx_opa_sd = atoi(argv[7]);
+	// input parameters
+	double cpmg_freq = atof(argv[1]);
+	double pulse2_us = atof(argv[2]);
+	double pulse2_dtcl = atof(argv[3]);
+	long unsigned scan_spacing_us = atoi(argv[4]);
+	unsigned int samples_per_echo = atoi(argv[5]);
+	unsigned int number_of_iteration = atoi(argv[6]);
+	unsigned int tx_opa_sd = atoi(argv[7]);
 
- // memory allocation
- #ifdef GET_RAW_DATA
- rddata_16 = (unsigned int*)malloc(samples_per_echo*sizeof(unsigned int));
- rddata = (unsigned int *)malloc(samples_per_echo/2*sizeof(unsigned int));
- #endif
+	// memory allocation
+#ifdef GET_RAW_DATA
+	// rddata_16 = (unsigned int*)malloc(samples_per_echo*sizeof(unsigned int));
+	rddata = (int *)malloc(samples_per_echo*sizeof(unsigned int));
+#endif
 
- open_physical_memory_device();
- mmap_peripherals();
- //init_default_system_param();
+	open_physical_memory_device();
+	mmap_peripherals();
+	//init_default_system_param();
 
- // enable the TX opamp during reception (default), will be controlled using the tx_opa_sd instead
- ctrl_out = ctrl_out | TX_OPA_EN;
- alt_write_word((h2p_ctrl_out_addr), ctrl_out);
+	// enable the TX opamp during reception (default), will be controlled using the tx_opa_sd instead
+	ctrl_out = ctrl_out | TX_OPA_EN;
+	alt_write_word((h2p_ctrl_out_addr), ctrl_out);
 
- if (tx_opa_sd)
- { // shutdown tx opamp during reception
- ctrl_out = ctrl_out | TX_OPA_SD_MSK;
- alt_write_word((h2p_ctrl_out_addr), ctrl_out);
- }
- else
- { // power up tx opamp all the way during reception
- ctrl_out = ctrl_out & (~TX_OPA_SD_MSK);
- alt_write_word((h2p_ctrl_out_addr), ctrl_out);
- }
+	if (tx_opa_sd)
+	{ // shutdown tx opamp during reception
+		ctrl_out = ctrl_out | TX_OPA_SD_MSK;
+		alt_write_word((h2p_ctrl_out_addr), ctrl_out);
+	}
+	else
+	{ // power up tx opamp all the way during reception
+		ctrl_out = ctrl_out & (~TX_OPA_SD_MSK);
+		alt_write_word((h2p_ctrl_out_addr), ctrl_out);
+	}
 
- alt_write_word(h2p_adc_val_sub, 9732); // do noise measurement and all the data to get this ADC DC bias integer value
+	// alt_write_word(h2p_adc_val_sub, 9732); // do noise measurement and all the data to get this ADC DC bias integer value
 
- FID_iterate(cpmg_freq, pulse2_us, pulse2_dtcl, scan_spacing_us,
- samples_per_echo, number_of_iteration, ENABLE_MESSAGE);
+	FID_iterate(cpmg_freq, pulse2_us, pulse2_dtcl, scan_spacing_us,
+			samples_per_echo, number_of_iteration, ENABLE_MESSAGE);
 
- // shutdown tx opamp during receptin (default)
- ctrl_out = ctrl_out | TX_OPA_SD_MSK;
- alt_write_word((h2p_ctrl_out_addr), ctrl_out);
+	// shutdown tx opamp during receptin (default)
+	ctrl_out = ctrl_out | TX_OPA_SD_MSK;
+	alt_write_word((h2p_ctrl_out_addr), ctrl_out);
 
- // close_system();
- munmap_peripherals();
- close_physical_memory_device();
+	// close_system();
+	munmap_peripherals();
+	close_physical_memory_device();
 
- // free memory
- #ifdef GET_RAW_DATA
- free(rddata_16);
- free(rddata);
- #endif
+	// free memory
+#ifdef GET_RAW_DATA
+	// free(rddata_16);
+	free(rddata);
+#endif
 
- return 0;
- }
- */
+	return 0;
+}
+//
 
 /* noise Iterate (rename the output to "noise")
  int main(int argc, char * argv[])
@@ -2451,36 +2628,37 @@ void close_system()
  }
  */
 
-// standalone function
-// this main function doesn't rely on any other main functions (e.g. to initialize the system) to work on, unlike the main functions above
-int main(int argc, char * argv[])
-{
-	// init
-	open_physical_memory_device();
-	mmap_peripherals();
-	init_default_system_param();
+/* standalone function
+ // this main function doesn't rely on any other main functions (e.g. to initialize the system) to work on, unlike the main functions above
+ int main(int argc, char * argv[])
+ {
+ // init
+ open_physical_memory_device();
+ mmap_peripherals();
+ init_default_system_param();
 
-	unsigned int x[10], y[10], z[10];
+ unsigned int x[10], y[10], z[10];
 
-	hs_init(h2p_mgnt_hs_addr, ENABLE_MESSAGE);
+ hs_init(h2p_mgnt_hs_addr, ENABLE_MESSAGE);
 
-	int ex = 0;
-	while (1)
-	{
-		hs_rd_xyz(h2p_mgnt_hs_addr, x, y, z, 10);
-		printf("x = %fmT, y = %fmT, z = %fmT\n", conv_to_Tesla(x[0]) * 1e3,
-				conv_to_Tesla(y[0]) * 1e3, conv_to_Tesla(z[0]) * 1e3);
-		// printf("x = %d, y = %d, z = %d\n\n", x[1], y[1], z[1]);
-		usleep(500000);
-		if (ex)
-			break;
-	}
+ int ex = 0;
+ while (1)
+ {
+ hs_rd_xyz(h2p_mgnt_hs_addr, x, y, z, 10);
+ printf("x = %fmT, y = %fmT, z = %fmT\n", conv_to_Tesla(x[0]) * 1e3,
+ conv_to_Tesla(y[0]) * 1e3, conv_to_Tesla(z[0]) * 1e3);
+ // printf("x = %d, y = %d, z = %d\n\n", x[1], y[1], z[1]);
+ usleep(500000);
+ if (ex)
+ break;
+ }
 
-	// close_system();
-	munmap_peripherals();
-	close_physical_memory_device();
-	return 0;
-}
+ // close_system();
+ munmap_peripherals();
+ close_physical_memory_device();
+ return 0;
+ }
+ */
 
 /* standalone function // this main function doesn't rely on any other main functions (e.g. to initialize the system) to work on, unlike the main functions above
  int main(int argc, char * argv[])
