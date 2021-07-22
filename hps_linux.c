@@ -2238,7 +2238,7 @@ void close_system()
  }
  */
 
-/* Preamp gain characterization (rename the output to "pamp_char")
+/* Preamp gain characterization (rename the output to "pamp_char_async")
  int main(int argc, char * argv[])
  {
  printf("Pamp characterization measurement starts\n");
@@ -2260,9 +2260,9 @@ void close_system()
 
  // memory allocation
  // rddata_16 = (unsigned int*) malloc(samples * sizeof(unsigned int));
- rddata = (unsigned int *) malloc(samples * sizeof(unsigned int));
+ rddata = (int *) malloc(samples * sizeof(unsigned int));
 
- tx_acq(startfreq, stopfreq, spacfreq, sampfreq, samples);
+ tx_acq_async(startfreq, stopfreq, spacfreq, sampfreq, samples);
 
  alt_write_word((h2p_ctrl_out_addr), (ctrl_out | TX_OPA_EN)); // re-enable the TX opamp (default)
 
@@ -2277,6 +2277,46 @@ void close_system()
  return 0;
  }
  */
+
+// Preamp gain characterization (rename the output to "pamp_char_sync")
+int main(int argc, char * argv[])
+{
+	printf("Pamp characterization measurement starts\n");
+
+	// input parameters
+	double startfreq = atof(argv[1]);
+	double stopfreq = atof(argv[2]);
+	double spacfreq = atof(argv[3]);
+
+	open_physical_memory_device();
+	mmap_peripherals();
+	// init_default_system_param();
+
+	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
+	alt_write_word((h2p_ctrl_out_addr), (ctrl_out & (~TX_OPA_EN))); // disable the TX opamp
+
+	// unsigned int samples = (unsigned int) (lround(sampfreq / spacfreq)); // the number of ADC samples taken
+	unsigned int samples = (unsigned int) (lround(stopfreq / spacfreq)); // the number of ADC samples taken
+
+	// memory allocation
+	// rddata_16 = (unsigned int*) malloc(samples * sizeof(unsigned int));
+	rddata = (int *) malloc(samples * sizeof(unsigned int));
+
+	tx_acq_sync(startfreq, stopfreq, spacfreq, samples);
+
+	alt_write_word((h2p_ctrl_out_addr), (ctrl_out | TX_OPA_EN)); // re-enable the TX opamp (default)
+
+	// close_system();
+	munmap_peripherals();
+	close_physical_memory_device();
+
+	// free memory
+	// free (rddata_16);
+	free (rddata);
+
+	return 0;
+}
+//
 
 /* CPMG Iterate
  // rename the output to "cpmg_iterate_raw" and define GET_RAW_DATA to get raw data.
@@ -2410,66 +2450,66 @@ void close_system()
  }
  */
 
-// FID Iterate (rename the output to "fid")
-int main(int argc, char * argv[])
-{
+/* FID Iterate (rename the output to "fid")
+ int main(int argc, char * argv[])
+ {
 
-	// input parameters
-	double cpmg_freq = atof(argv[1]);
-	double pulse2_us = atof(argv[2]);
-	double pulse2_dtcl = atof(argv[3]);
-	long unsigned scan_spacing_us = atoi(argv[4]);
-	unsigned int samples_per_echo = atoi(argv[5]);
-	unsigned int number_of_iteration = atoi(argv[6]);
-	unsigned int tx_opa_sd = atoi(argv[7]);
+ // input parameters
+ double cpmg_freq = atof(argv[1]);
+ double pulse2_us = atof(argv[2]);
+ double pulse2_dtcl = atof(argv[3]);
+ long unsigned scan_spacing_us = atoi(argv[4]);
+ unsigned int samples_per_echo = atoi(argv[5]);
+ unsigned int number_of_iteration = atoi(argv[6]);
+ unsigned int tx_opa_sd = atoi(argv[7]);
 
-	// memory allocation
-#ifdef GET_RAW_DATA
-	// rddata_16 = (unsigned int*)malloc(samples_per_echo*sizeof(unsigned int));
-	rddata = (int *)malloc(samples_per_echo*sizeof(unsigned int));
-#endif
+ // memory allocation
+ #ifdef GET_RAW_DATA
+ // rddata_16 = (unsigned int*)malloc(samples_per_echo*sizeof(unsigned int));
+ rddata = (int *)malloc(samples_per_echo*sizeof(unsigned int));
+ #endif
 
-	open_physical_memory_device();
-	mmap_peripherals();
-	//init_default_system_param();
+ open_physical_memory_device();
+ mmap_peripherals();
+ //init_default_system_param();
 
-	// enable the TX opamp during reception (default), will be controlled using the tx_opa_sd instead
-	ctrl_out = ctrl_out | TX_OPA_EN;
-	alt_write_word((h2p_ctrl_out_addr), ctrl_out);
+ // enable the TX opamp during reception (default), will be controlled using the tx_opa_sd instead
+ ctrl_out = ctrl_out | TX_OPA_EN;
+ alt_write_word((h2p_ctrl_out_addr), ctrl_out);
 
-	if (tx_opa_sd)
-	{ // shutdown tx opamp during reception
-		ctrl_out = ctrl_out | TX_OPA_SD_MSK;
-		alt_write_word((h2p_ctrl_out_addr), ctrl_out);
-	}
-	else
-	{ // power up tx opamp all the way during reception
-		ctrl_out = ctrl_out & (~TX_OPA_SD_MSK);
-		alt_write_word((h2p_ctrl_out_addr), ctrl_out);
-	}
+ if (tx_opa_sd)
+ { // shutdown tx opamp during reception
+ ctrl_out = ctrl_out | TX_OPA_SD_MSK;
+ alt_write_word((h2p_ctrl_out_addr), ctrl_out);
+ }
+ else
+ { // power up tx opamp all the way during reception
+ ctrl_out = ctrl_out & (~TX_OPA_SD_MSK);
+ alt_write_word((h2p_ctrl_out_addr), ctrl_out);
+ }
 
-	// alt_write_word(h2p_adc_val_sub, 9732); // do noise measurement and all the data to get this ADC DC bias integer value
+ // alt_write_word(h2p_adc_val_sub, 9732); // do noise measurement and all the data to get this ADC DC bias integer value
 
-	FID_iterate(cpmg_freq, pulse2_us, pulse2_dtcl, scan_spacing_us,
-			samples_per_echo, number_of_iteration, ENABLE_MESSAGE);
+ FID_iterate(cpmg_freq, pulse2_us, pulse2_dtcl, scan_spacing_us,
+ samples_per_echo, number_of_iteration, ENABLE_MESSAGE);
 
-	// shutdown tx opamp during receptin (default)
-	ctrl_out = ctrl_out | TX_OPA_SD_MSK;
-	alt_write_word((h2p_ctrl_out_addr), ctrl_out);
+ // shutdown tx opamp during receptin (default)
+ ctrl_out = ctrl_out | TX_OPA_SD_MSK;
+ alt_write_word((h2p_ctrl_out_addr), ctrl_out);
 
-	// close_system();
-	munmap_peripherals();
-	close_physical_memory_device();
+ // close_system();
+ munmap_peripherals();
+ close_physical_memory_device();
 
-	// free memory
-#ifdef GET_RAW_DATA
-	// free(rddata_16);
-	free(rddata);
-#endif
+ // free memory
+ #ifdef GET_RAW_DATA
+ // free(rddata_16);
+ free(rddata);
+ #endif
 
-	return 0;
-}
-//
+ return 0;
+ }
+ */
 
 /* noise Iterate (rename the output to "noise")
  int main(int argc, char * argv[])
