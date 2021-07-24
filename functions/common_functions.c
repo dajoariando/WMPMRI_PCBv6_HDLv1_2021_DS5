@@ -46,7 +46,7 @@ unsigned int rd_FIFO(volatile unsigned int *FIFO_status_addr,
 		}
 		//usleep(1);
 	}
-	usleep(100);
+	// usleep(100);
 
 	return i;
 }

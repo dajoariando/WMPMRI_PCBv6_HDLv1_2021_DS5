@@ -448,7 +448,7 @@ void write_i2c_int_cnt(uint32_t en, uint32_t addr_msk0, uint32_t addr_msk1,
 
 	alt_write_word((h2p_i2c_int_addr + CTRL_OFST), 0 << CORE_EN_SHFT); // disable i2c core
 
-	usleep(10000); // delay to finish i2c operation
+	// usleep(10000); // delay to finish i2c operation
 
 }
 
@@ -495,12 +495,12 @@ void init_dac_ad5724r()
 	// clear the DAC output
 	ctrl_out = ctrl_out & (~DAC_CLR);
 	alt_write_word((h2p_ctrl_out_addr), ctrl_out);
-	usleep(1);
+	// usleep(1);
 
 	// release the clear pin
 	ctrl_out = ctrl_out | DAC_CLR;
 	alt_write_word((h2p_ctrl_out_addr), ctrl_out);
-	usleep(1);
+	// usleep(1);
 
 }
 
@@ -529,69 +529,69 @@ void print_warning_ad5724r(uint8_t en_mesg)
 	if (dataread & OC_A)
 	{
 		printf("\tDAC A overcurrent alert (OCa)!\n");
-		usleep(10);
+		// usleep(10);
 	}
 	if (dataread & OC_B)
 	{
 		printf("\tDAC B overcurrent alert (OCb)!\n");
-		usleep(10);
+		// usleep(10);
 	}
 	if (dataread & OC_C)
 	{
 		printf("\tDAC C overcurrent alert (OCc)!\n");
-		usleep(10);
+		// usleep(10);
 	}
 	if (dataread & OC_D)
 	{
 		printf("\tDAC D overcurrent alert (OCd)!\n");
-		usleep(10);
+		// usleep(10);
 	}
 
 	if (en_mesg)
 	{
 		if (dataread & DAC_A_PU)
 		{
-			printf("\tDAC A is up");
+			printf("\tDAC A is up\n");
 		}
 		else
 		{
-			printf("\tDAC A is down");
+			printf("\tDAC A is down\n");
 		}
 
 		if (dataread & DAC_B_PU)
 		{
-			printf("\tDAC B is up");
+			printf("\tDAC B is up\n");
 		}
 		else
 		{
-			printf("\tDAC B is down");
+			printf("\tDAC B is down\n");
 		}
 
 		if (dataread & DAC_C_PU)
 		{
-			printf("\tDAC C is up");
+			printf("\tDAC C is up\n");
 		}
 		else
 		{
-			printf("\tDAC C is down");
+			printf("\tDAC C is down\n");
 		}
 
 		if (dataread & DAC_D_PU)
 		{
-			printf("\tDAC D is up");
+			printf("\tDAC D is up\n");
 		}
 		else
 		{
-			printf("\tDAC D is down");
+			printf("\tDAC D is down\n");
 		}
 
 		if (dataread & REF_PU)
 		{
-			printf("\tVREF is up");
+			printf("\tVREF is up\n");
 		}
 		else
 		{
-			printf("\tVREF is down");
+			printf("\tVREF is down\n");
 		}
 	}
 
@@ -651,7 +651,7 @@ void wr_dac_ad5724r(volatile unsigned int * dac_addr, unsigned int dac_id,
 			printf("\t(w:0x%04x)", (volt_int & 0x0FFF)); // print the integer dac_varac value, truncate to 12-bit signed integer value
 			printf("\t(r:0x%04x)\n", dataread >> 4);	// print the read value
 		}
-		usleep(100);
+		// usleep(100);
 		print_warning_ad5724r(en_mesg); // find out if warning has been detected
 
 		// recursion to make sure it works
@@ -666,12 +666,12 @@ void wr_dac_ad5724r(volatile unsigned int * dac_addr, unsigned int dac_id,
 	{
 		ctrl_out = ctrl_out & ~DAC_LDAC_en;
 		alt_write_word((h2p_ctrl_out_addr), ctrl_out);
-		usleep(50);
+		// usleep(50);
 
 		// disable LDAC one more time
 		ctrl_out = ctrl_out | DAC_LDAC_en;
 		alt_write_word((h2p_ctrl_out_addr), ctrl_out);
-		usleep(50);
+		// usleep(50);
 	}
 }
 
@@ -855,16 +855,16 @@ void runFSM(double nmr_fsm_clkfreq, uint32_t ph_cycl_en,
 			ctrl_out |= PHASE_CYCLING;
 		}
 		alt_write_word((h2p_ctrl_out_addr), ctrl_out);
-		usleep(1);
+		// usleep(1);
 	}
 
 	// reset buffer
 	ctrl_out |= (0x01 << ADC_FIFO_RST_ofst);
 	alt_write_word((h2p_ctrl_out_addr), ctrl_out);
-	usleep(1);
+	// usleep(1);
 	ctrl_out &= ~(0x01 << ADC_FIFO_RST_ofst);
 	alt_write_word((h2p_ctrl_out_addr), ctrl_out);
-	usleep(1);
+	// usleep(1);
 
 	// start fsm
 	// it will reset the pll as well, so it's important to set the phase
@@ -895,7 +895,7 @@ void runFSM(double nmr_fsm_clkfreq, uint32_t ph_cycl_en,
 		else
 		{ // if read from fifo is intended
 			while ( alt_read_word(h2p_ctrl_in_addr) & (0x01<<NMR_SEQ_run_ofst) );// wait until fsm stops
-			usleep(300);
+			// usleep(300);
 			unsigned int datacaptured = rd_FIFO (h2p_adc_fifo_status_addr, h2p_adc_fifo_addr, rddata);
 			// if ((datacaptured<<1) != acq_length)
 			if ((datacaptured) != acq_length)
@@ -1738,7 +1738,7 @@ void tx_sampling_async(double tx_freq, double samp_freq,
 // enable transmit on acquisition
 	ctrl_out |= PULSE_ON_RX;
 	alt_write_word((h2p_ctrl_out_addr), ctrl_out);
-	usleep(1);
+	// usleep(1);
 
 	runFSM(samp_freq * 4, ph_cycl_en, tx_num_of_samples, filename,
 			SAV_INDV_SCAN, RD_DATA_VIA_SDRAM_OR_FIFO, RD_FIFO);
@@ -1750,7 +1750,7 @@ void tx_sampling_async(double tx_freq, double samp_freq,
 // disable transmit on acquisition
 	ctrl_out &= ~(PULSE_ON_RX);
 	alt_write_word((h2p_ctrl_out_addr), ctrl_out);
-	usleep(1);
+	// usleep(1);
 
 // KEEP THIS CODE AND ENABLE IT IF YOU USE C-ONLY, OPPOSED TO USING PYTHON
 // activate normal signal path for the receiver
@@ -1807,7 +1807,7 @@ void tx_sampling_sync(double tx_freq, unsigned int tx_num_of_samples,
 // enable transmit on acquisition
 	ctrl_out |= PULSE_ON_RX;
 	alt_write_word((h2p_ctrl_out_addr), ctrl_out);
-	usleep(1);
+	// usleep(1);
 
 	runFSM(tx_freq * 16, ph_cycl_en, tx_num_of_samples, filename, SAV_INDV_SCAN,
 			RD_DATA_VIA_SDRAM_OR_FIFO, RD_FIFO);
@@ -1819,7 +1819,7 @@ void tx_sampling_sync(double tx_freq, unsigned int tx_num_of_samples,
 // disable transmit on acquisition
 	ctrl_out &= ~(PULSE_ON_RX);
 	alt_write_word((h2p_ctrl_out_addr), ctrl_out);
-	usleep(1);
+	// usleep(1);
 
 // KEEP THIS CODE AND ENABLE IT IF YOU USE C-ONLY, OPPOSED TO USING PYTHON
 // activate normal signal path for the receiver
@@ -1978,7 +1978,7 @@ void tx_acq_sync(double startfreq, double stopfreq, double spacfreq,
 		snprintf(filename, 100, "tx_acq_%4.3f", ifreq);
 		// printf("freq: %4.3f\n", ifreq);
 		tx_sampling_sync(ifreq, nsamples, filename);
-		usleep(1); // this delay is necessary. If it's not here, the system will not crash but the i2c will stop working (?), and the reading length is incorrect
+		// usleep(1); // this delay is necessary. If it's not here, the system will not crash but the i2c will stop working (?), and the reading length is incorrect
 	}
 
 }
@@ -2609,8 +2609,8 @@ int main(int argc, char * argv[])
  }
  */
 
-/* Magnet controller
- // rename the output to "mgnt_ctrl"
+/* Magnet trigger controller
+ // rename the output to "mgnt_trig"
  // this program controls the magnet controller fsm code
  int main(int argc, char * argv[])
  {
@@ -2621,7 +2621,9 @@ int main(int argc, char * argv[])
  double dchg_dlen_us = atof(argv[4]); // discharging delay length
  unsigned int n = atoi(argv[5]); // number of repetition
  unsigned int d = atoi(argv[6]); // delay after sequence
- double clk_freq = atof(argv[7]); // clock frequency used by the finite state machine
+ // double clk_freq = atof(argv[7]); // clock frequency used by the finite state machine
+
+ double clk_freq = 50.00; // the clock frequency is fixed to be 50 MHz
 
  open_physical_memory_device();
  mmap_peripherals();
@@ -2631,10 +2633,10 @@ int main(int argc, char * argv[])
  ctrl_out = alt_read_word(h2p_ctrl_out_addr);
 
  // set pll for CPMG
- Set_PLL(h2p_nmr_sys_pll_addr, 0, clk_freq, 0.5, DISABLE_MESSAGE);
- Reset_PLL(h2p_ctrl_out_addr, PLL_NMR_SYS_RST_ofst, ctrl_out);
- Set_DPS(h2p_nmr_sys_pll_addr, 0, 0, DISABLE_MESSAGE);
- Wait_PLL_To_Lock(h2p_ctrl_in_addr, PLL_NMR_SYS_lock_ofst);
+ // Set_PLL(h2p_nmr_sys_pll_addr, 0, clk_freq, 0.5, DISABLE_MESSAGE);
+ // Reset_PLL(h2p_ctrl_out_addr, PLL_NMR_SYS_RST_ofst, ctrl_out);
+ // Set_DPS(h2p_nmr_sys_pll_addr, 0, 0, DISABLE_MESSAGE);
+ // Wait_PLL_To_Lock(h2p_ctrl_in_addr, PLL_NMR_SYS_lock_ofst);
 
  // write t1-IR measurement parameters (put both to 0 if IR is not desired)
  alt_write_word(h2p_mgnt_chg_plen_addr,
@@ -2659,6 +2661,10 @@ int main(int argc, char * argv[])
  alt_write_word(h2p_ctrl_out_addr, ctrl_out);
  ctrl_out &= ~(MGNT_START);
  alt_write_word(h2p_ctrl_out_addr, ctrl_out);
+
+ // wait for the pulser to finish
+ while (!(alt_read_word(h2p_ctrl_in_addr) & MGNT_STAT))
+ ;
 
  // close_system();
  munmap_peripherals();

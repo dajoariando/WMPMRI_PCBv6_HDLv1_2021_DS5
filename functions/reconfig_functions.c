@@ -35,7 +35,7 @@ void Reconfig_Mode(void * addr, uint32_t val)
 {
 	//Write in Mode Register "0" for waitrequest mode, "1" for polling mode
 	alt_write_word((addr + MODE), val);
-	usleep(100);
+	// usleep(100);
 }
 
 void Reconfig_N(void * addr, uint32_t low_count, uint32_t high_count,
@@ -158,7 +158,7 @@ uint32_t Read_C_Counter(void * addr, uint32_t counter_select)
 void Reset_PLL(void *ctl_out_reg, uint32_t rst_ofst, uint32_t ctrl_out_signal)
 {
 	alt_write_word((ctl_out_reg), (ctrl_out_signal | (0x01 << rst_ofst)));// reset pll
-	usleep(1);
+	// usleep(1);
 	alt_write_word((ctl_out_reg), (ctrl_out_signal & ~(0x01 << rst_ofst)));	// deassert reset pll
 }
 
