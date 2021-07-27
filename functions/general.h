@@ -1,7 +1,8 @@
 // offsets for output control signal
-#define MV2_INIT_ofst					(17) // magnetometer init
+// #define FFT_START_ofst					(20) // the FFT start signal
+#define MV2_INIT_ofst					(19) // magnetometer init
 #define MV2_DA_ofst						(18) // magnetometer digital/analog
-#define MV2_INV_ofst					(18) // magnetometer polarity inversion
+#define MV2_INV_ofst					(17) // magnetometer polarity inversion
 #define MGNT_START_ofst					(16) // start the magnet programming sequence
 #define MGNT_RST_ofst					(15) // reset the magnet programming FSM
 #define PULSE_ON_RX_ofst				(14)
@@ -21,7 +22,7 @@
 #define DAC_CLR_ofst					(0)
 
 // Output control signal to FPGA
-
+// #define FFT_START					(1<<FFT_START_ofst)
 #define MV2_INIT					(1<<MV2_INIT_ofst) // magnetometer init
 #define MV2_DA						(1<<MV2_DA_ofst) // magnetometer digital/analog
 #define MV2_INV						(1<<MV2_INV_ofst) // magnetometer polarity inversion
@@ -153,3 +154,7 @@
 
 #define SAV_BINARY		1 // save data in binary format
 #define SAV_ASCII		0 // save data in ascii format
+
+// FFT acquisition command (put an integer number to get a particular FFT point, instead use SAV_ALL_FFT to get all FFT points. Or NO_SAV_FFT to ignore FFT)
+#define SAV_ALL_FFT		-1
+#define NO_SAV_FFT		0

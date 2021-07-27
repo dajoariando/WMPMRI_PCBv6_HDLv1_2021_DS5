@@ -96,6 +96,70 @@ void wr_File(char * pathname, unsigned int length, int * buf,
 
 }
 
+void wr_File_long(char * pathname, unsigned int length, long * buf,
+		char binary_OR_ascii)
+{
+
+	// binary_OR_ascii = 1 save binary output into the text file (1). Otherwise, it'll be ASCII output (0)
+
+	FILE *fptr;
+
+	fptr = fopen(pathname, "w");
+	if (fptr == NULL)
+	{
+		printf("File does not exists \n");
+	}
+
+	if (binary_OR_ascii)
+	{ // binary output
+		fwrite(buf, sizeof(uint32_t), length, fptr);
+	}
+
+	else
+	{ // ascii output
+		long i;
+
+		for (i = 0; i < ((length)); i++)
+		{
+			fprintf(fptr, "%ld\n", buf[i]);
+		}
+
+	}
+
+}
+
+void wr_File_longlong(char * pathname, unsigned int length,
+		unsigned long long * buf, char binary_OR_ascii)
+{
+
+	// binary_OR_ascii = 1 save binary output into the text file (1). Otherwise, it'll be ASCII output (0)
+
+	FILE *fptr;
+
+	fptr = fopen(pathname, "w");
+	if (fptr == NULL)
+	{
+		printf("File does not exists \n");
+	}
+
+	if (binary_OR_ascii)
+	{ // binary output
+		fwrite(buf, sizeof(unsigned long long), length, fptr);
+	}
+
+	else
+	{ // ascii output
+		long i;
+
+		for (i = 0; i < ((length)); i++)
+		{
+			fprintf(fptr, "%llu\n", buf[i]);
+		}
+
+	}
+
+}
+
 void print_progress(int iterate, int number_of_iteration)
 {
 	float static old_progress = 0;
