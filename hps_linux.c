@@ -153,12 +153,12 @@ void munmap_fpga_peripherals() {
 }
 
 void mmap_peripherals() {
-	mmap_hps_peripherals();
+	// mmap_hps_peripherals();
 	mmap_fpga_peripherals();
 }
 
 void munmap_peripherals() {
-	munmap_hps_peripherals();
+	// munmap_hps_peripherals();
 	munmap_fpga_peripherals();
 }
 
@@ -1497,8 +1497,10 @@ void tx_sampling_sync(double tx_freq, unsigned int tx_num_of_samples, char * fil
 	alt_write_word( ( h2p_pulse1_addr ), 0);   // random safe number
 	alt_write_word( ( h2p_delay1_addr ), 0);   // random safe number
 	alt_write_word( ( h2p_pulse2_addr ), 0);   // random safe number
-	alt_write_word( ( h2p_delay2_addr ), tx_num_of_samples * 4 * 2);   // *4 is because the system clock is 4*ADC clock. *2 factor is to increase the delay_window to about 2*acquisition window for safety.
-	alt_write_word( ( h2p_init_adc_delay_addr ), (unsigned int) ( tx_num_of_samples / 2 ));   // put adc acquisition window exactly at the middle of the delay window
+	// alt_write_word( ( h2p_delay2_addr ), tx_num_of_samples * 4 * 2);   // *4 is because the system clock is 4*ADC clock. *2 factor is to increase the delay_window to about 2*acquisition window for safety.
+	alt_write_word( ( h2p_delay2_addr ), tx_num_of_samples * 4);   // *4 is because the system clock is 4*ADC clock. *2 factor is to increase the delay_window to about 2*acquisition window for safety.
+	// alt_write_word( ( h2p_init_adc_delay_addr ), (unsigned int) ( tx_num_of_samples / 2 ));   // put adc acquisition window exactly at the middle of the delay window
+	alt_write_word( ( h2p_init_adc_delay_addr ), 0);   // put adc acquisition window exactly at the middle of the delay window
 	alt_write_word( ( h2p_echo_per_scan_addr ), 1);
 	alt_write_word( ( h2p_adc_samples_per_echo_addr ), tx_num_of_samples);
 
@@ -1758,6 +1760,13 @@ void get_FFT_data(char * filename) {
 			dreal = (long*) malloc(fftpts * sizeof(long));
 			dimag = (long*) malloc(fftpts * sizeof(long));
 
+			if (fft_localdata == NULL)
+				printf("ERROR! fft_localdata allocation failed!");
+			if (dreal == NULL)
+				printf("ERROR! dreal allocation failed!");
+			if (dimag == NULL)
+				printf("ERROR! dimag allocation failed!");
+
 			memcpy(fft_localdata, (unsigned long long*) h2p_fft_ctrl_addr, fftpts * sizeof(unsigned long long));
 			int ii;
 			for (ii = 0; ii < fftpts; ii++) {
@@ -1785,7 +1794,7 @@ void get_FFT_data(char * filename) {
 			fft_localdata_single = alt_read_dword(h2p_fft_ctrl_addr + fftcmd);   // the fft ram is read with the offset of the fftcmd
 			fft_data_re[fft_i] = (long) ( ( fft_localdata_single >> 32 ) & 0xFFFFFFFF );
 			fft_data_im[fft_i] = (long) ( fft_localdata_single & 0xFFFFFFFF );
-			fft_i++;
+			fft_i++;   // increment the i for multi-scan data index
 		break;
 	}
 
@@ -1941,7 +1950,7 @@ void close_system() {
  */
 
 /* I2C general control (rename the output to "i2c_gnrl")
- int main(int argc, char * argv[]) { // argv cannot contain more than so many characters
+ int main(int argc, char * argv[]) {   // argv cannot contain more than so many characters
  // printf("General control with I2C\n");
 
  // input parameters
@@ -1951,7 +1960,7 @@ void close_system() {
  open_physical_memory_device();
  mmap_peripherals();
 
- write_i2c_int_cnt (ENABLE, (gnrl_cnt & 0xFFFF), (gnrl_cnt1 & 0xFFFF), DISABLE_MESSAGE); // enable the toggled index
+ write_i2c_int_cnt(ENABLE, ( gnrl_cnt & 0xFFFF ), ( gnrl_cnt1 & 0xFFFF ), DISABLE_MESSAGE);   // enable the toggled index
 
  munmap_peripherals();
  close_physical_memory_device();
@@ -1960,8 +1969,7 @@ void close_system() {
  */
 
 /* Wobble Sync (rename the output to "wobble_sync")
- int main(int argc, char * argv[])
- {
+ int main(int argc, char * argv[]) {
 
  // the wobble function startfreq is minimum 1 MHz, otherwise the TX PLL (h2p_analyzer_pll_addr) won't lock.
 
@@ -1969,33 +1977,49 @@ void close_system() {
  double startfreq = atof(argv[1]);
  double stopfreq = atof(argv[2]);
  double spacfreq = atof(argv[3]);
+ fftpts = atoi(argv[4]);   // fft number of points
+ fftcmd = atoi(argv[5]);   // fft command : SAV_ALL_FFT, NO_SAV_FFT, or any positive integer value to take only one FFT data point
+ unsigned int fftvalsub = atoi(argv[6]);   // adc data value subtractor before fed into the FFT core to remove DC components. Get the DC value by doing noise measurement
 
  open_physical_memory_device();
  mmap_peripherals();
  // init_default_system_param();
 
  ctrl_out = alt_read_word(h2p_ctrl_out_addr);
- alt_write_word((h2p_ctrl_out_addr), (ctrl_out & (~TX_OPA_SD_MSK))); // mask out the TX_OPA_SD signal in the fpga (disable TX Opamp shutdown during reception)
+ alt_write_word( ( h2p_ctrl_out_addr ), ( ctrl_out & ( ~TX_OPA_SD_MSK ) ));   // mask out the TX_OPA_SD signal in the fpga (disable TX Opamp shutdown during reception)
 
+ unsigned int wobb_samples;
+ if ( ( fftcmd == SAV_ALL_FFT ) || ( fftcmd > 0 ))   //
+ {
+ alt_write_word(h2p_adc_val_sub, fftvalsub);   // do noise measurement and all the data to get this ADC DC bias integer value
+ alt_write_word( ( h2p_fft_ffpts_addr ), fftpts);   // get fft with fftpts number of points
+ wobb_samples = fftpts;   // the number of ADC samples taken
+ }
+ else {
  //WOBBLE
  // unsigned int wobb_samples = (unsigned int) (lround(sampfreq / spacfreq)); // the number of ADC samples taken
- unsigned int wobb_samples = (unsigned int) (lround(stopfreq / spacfreq)); // the number of ADC samples taken
+ wobb_samples = (unsigned int) ( lround(stopfreq / spacfreq) );   // the number of ADC samples taken
+ }
 
+ #ifdef GET_RAW_DATA
  // memory allocation
  // rddata_16 = (unsigned int*) malloc(wobb_samples * sizeof(unsigned int));
  rddata = (int *) malloc(wobb_samples * sizeof(int));
+ #endif
 
  tx_acq_sync(startfreq, stopfreq, spacfreq, wobb_samples);
 
- alt_write_word((h2p_ctrl_out_addr), (ctrl_out | TX_OPA_SD_MSK)); // re-enable the TX_OPA_SD signal in the fpga
+ alt_write_word( ( h2p_ctrl_out_addr ), ( ctrl_out | TX_OPA_SD_MSK ));   // re-enable the TX_OPA_SD signal in the fpga
 
  // close_system();
  munmap_peripherals();
  close_physical_memory_device();
 
+ #ifdef GET_RAW_DATA
  // free memory
  // free (rddata_16);
  free (rddata);
+ #endif
 
  return 0;
  }
@@ -2088,7 +2112,7 @@ void close_system() {
 int main(int argc, char * argv[]) {
 	printf("Pamp characterization measurement starts\n");
 
-// input parameters
+	// input parameters
 	double startfreq = atof(argv[1]);
 	double stopfreq = atof(argv[2]);
 	double spacfreq = atof(argv[3]);
@@ -2098,19 +2122,21 @@ int main(int argc, char * argv[]) {
 
 	open_physical_memory_device();
 	mmap_peripherals();
-// init_default_system_param();
+	// init_default_system_param();
 
 	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
 	alt_write_word( ( h2p_ctrl_out_addr ), ( ctrl_out & ( ~TX_OPA_EN ) ));   // disable the TX opamp
 
+	unsigned int samples;   // the number of ADC samples taken
 	if ( ( fftcmd == SAV_ALL_FFT ) || ( fftcmd > 0 ))   //
 	{
 		alt_write_word(h2p_adc_val_sub, fftvalsub);   // do noise measurement and all the data to get this ADC DC bias integer value
-		alt_write_word( ( h2p_fft_ffpts_addr ), fftpts);   // get fft with 512 number of points
+		alt_write_word(h2p_fft_ffpts_addr, fftpts);   // get fft with fftpts number of points
+		samples = fftpts;
 	}
-
-// unsigned int samples = (unsigned int) (lround(sampfreq / spacfreq)); // the number of ADC samples taken
-	unsigned int samples = (unsigned int) ( lround(stopfreq / spacfreq) );   // the number of ADC samples taken
+	else {
+		samples = (unsigned int) ( lround(stopfreq / spacfreq) );   // the number of ADC samples taken
+	}
 
 #ifdef GET_RAW_DATA
 	// memory allocation
@@ -2122,7 +2148,7 @@ int main(int argc, char * argv[]) {
 
 	alt_write_word( ( h2p_ctrl_out_addr ), ( ctrl_out | TX_OPA_EN ));   // re-enable the TX opamp (default)
 
-// close_system();
+	// close_system();
 	munmap_peripherals();
 	close_physical_memory_device();
 

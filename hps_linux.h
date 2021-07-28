@@ -206,8 +206,8 @@ int fftcmd;   // fft command : SAV_ALL_FFT, NO_SAV_FFT, or any positive integer 
 int fftpts;   // fft data points to be taken
 int fft_i;   // fft data index that is used when only one point being captured for a single scan, and there are multiple scans in one run
 
-char foldername[50];   // variable to store folder name of the measurement data
-char pathname[60];
+char foldername[100];   // variable to store folder name of the measurement data
+char pathname[100];
 
 int dconv_fact;   // downconversion factor
 int echo_skip_hw;   // echo skipping factor in hardware (echoes captured by the ADC are reduced by this factor)
