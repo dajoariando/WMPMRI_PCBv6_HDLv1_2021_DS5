@@ -99,7 +99,7 @@
 #define SYSID_QSYS_SPAN 8
 #define SYSID_QSYS_END 0xf
 #define SYSID_QSYS_ID 2899645186
-#define SYSID_QSYS_TIMESTAMP 1627287970
+#define SYSID_QSYS_TIMESTAMP 1627352881
 
 /*
  * Macros for device 'nmr_parameters_samples_per_echo', class 'altera_avalon_pio'
@@ -1176,15 +1176,15 @@
 #define SWITCHES_RESET_VALUE 0
 
 /*
- * Macros for device 'fft_ctrl', class 'fft_ctrl'
- * The macros are prefixed with 'FFT_CTRL_'.
+ * Macros for device 'fft_ctrl_0', class 'fft_ctrl'
+ * The macros are prefixed with 'FFT_CTRL_0_'.
  * The prefix is the slave descriptor.
  */
-#define FFT_CTRL_COMPONENT_TYPE fft_ctrl
-#define FFT_CTRL_COMPONENT_NAME fft_ctrl
-#define FFT_CTRL_BASE 0x4002000
-#define FFT_CTRL_SPAN 8192
-#define FFT_CTRL_END 0x4003fff
+#define FFT_CTRL_0_COMPONENT_TYPE fft_ctrl
+#define FFT_CTRL_0_COMPONENT_NAME fft_ctrl_0
+#define FFT_CTRL_0_BASE 0x4002000
+#define FFT_CTRL_0_SPAN 8192
+#define FFT_CTRL_0_END 0x4003fff
 
 
 #endif /* _ALTERA_HPS_SOC_SYSTEM_H_ */

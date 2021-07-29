@@ -1968,6 +1968,103 @@ void close_system() {
  }
  */
 
+/* Single Point FFT (rename the output to "spt_fft")
+ int main(int argc, char * argv[]) {
+
+ // the wobble function startfreq is minimum 1 MHz, otherwise the TX PLL (h2p_analyzer_pll_addr) won't lock.
+
+ // input parameters
+ double freq = atof(argv[1]);
+ fftpts = atoi(argv[2]);   // fft number of points
+ fftcmd = atoi(argv[3]);   // fft command : SAV_ALL_FFT, NO_SAV_FFT, or any positive integer value to take only one FFT data point
+ unsigned int fftvalsub = atoi(argv[4]);   // adc data value subtractor before fed into the FFT core to remove DC components. Get the DC value by doing noise measurement
+
+ open_physical_memory_device();
+ mmap_peripherals();
+ // init_default_system_param();
+
+ ctrl_out = alt_read_word(h2p_ctrl_out_addr);
+ alt_write_word( ( h2p_ctrl_out_addr ), ( ctrl_out & ( ~TX_OPA_SD_MSK ) ));   // mask out the TX_OPA_SD signal in the fpga (disable TX Opamp shutdown during reception)
+
+ alt_write_word(h2p_adc_val_sub, fftvalsub);   // do noise measurement and all the data to get this ADC DC bias integer value
+ alt_write_word( ( h2p_fft_ffpts_addr ), fftpts);   // get fft with fftpts number of points
+ //////////////////////////////////////////////////////////////////////////////////////////////////////
+
+ create_measurement_folder("spfft");
+
+ // print matlab script to analyze datas
+ sprintf(pathname, "current_folder.txt");
+ fptr = fopen(pathname, "w");
+ fprintf(fptr, "%s\n", foldername);
+ fclose (fptr);
+
+ // print general measurement settings
+ sprintf(pathname, "%s/acqu.par", foldername);
+ fptr = fopen(pathname, "a");
+ fprintf(fptr, "freq = %4.3f\n", freq);
+ fprintf(fptr, "fftPts = %d\n", fftpts);
+
+ switch (fftcmd) {
+ case SAV_ALL_FFT:
+ fprintf(fptr, "fftSaveAllData = 1\n");
+ fprintf(fptr, "fftSaveOnePts = 0\n");
+ break;
+
+ case NO_SAV_FFT:
+ fprintf(fptr, "fftSaveAllData = 0\n");
+ fprintf(fptr, "fftSaveOnePts = 0\n");
+ break;
+
+ default:
+ fprintf(fptr, "fftSaveAllData = 0\n");
+ fprintf(fptr, "fftSaveOnePts = 1\n");
+ fprintf(fptr, "fftPtIdx = %d\n", fftcmd);
+ break;
+ }
+
+ char * filename;
+ filename = (char*) malloc(100 * sizeof(char));
+
+ // allocate the fft variables
+ if (fftcmd > 0)   // capture the individual data point given by fftcmd
+ {
+
+ // allocate the variables to store values
+ fft_data_re = (long*) malloc(1 * sizeof(long));
+ fft_data_im = (long*) malloc(1 * sizeof(long));
+
+ // set the index to be 0
+ fft_i = 0;
+
+ }
+
+ snprintf(filename, 100, "tx_acq_%4.3f", freq);
+
+ // printf("freq: %4.3f\n", ifreq);
+ tx_sampling_sync(freq, fftpts, filename);
+
+ get_FFT_data(filename);   // get the fft data defined by the fftcmd
+
+ if (fftcmd > 0) {
+ // print all scan data
+ sprintf(pathname, "%s/%s", foldername, "spfft.txt");
+ wr_File_long(pathname, 1, fft_data_re, SAV_ASCII);
+ HANDLE THIS
+ ERROR
+ !wr_File_long(pathname, 1, fft_data_im, SAV_ASCII);
+ }
+
+ ///////////////////////////////////////////////////////////////////////////////////////
+ alt_write_word( ( h2p_ctrl_out_addr ), ( ctrl_out | TX_OPA_SD_MSK ));   // re-enable the TX_OPA_SD signal in the fpga
+
+ // close_system();
+ munmap_peripherals();
+ close_physical_memory_device();
+
+ return 0;
+ }
+ */
+
 /* Wobble Sync (rename the output to "wobble_sync")
  int main(int argc, char * argv[]) {
 
@@ -2108,59 +2205,59 @@ void close_system() {
  }
  */
 
-// Preamp gain characterization (rename the output to "pamp_char_sync")
-int main(int argc, char * argv[]) {
-	printf("Pamp characterization measurement starts\n");
+/* Preamp gain characterization (rename the output to "pamp_char_sync")
+ int main(int argc, char * argv[]) {
+ printf("Pamp characterization measurement starts\n");
 
-	// input parameters
-	double startfreq = atof(argv[1]);
-	double stopfreq = atof(argv[2]);
-	double spacfreq = atof(argv[3]);
-	fftpts = atoi(argv[4]);   // fft number of points
-	fftcmd = atoi(argv[5]);   // fft command : SAV_ALL_FFT, NO_SAV_FFT, or any positive integer value to take only one FFT data point
-	unsigned int fftvalsub = atoi(argv[6]);   // adc data value subtractor before fed into the FFT core to remove DC components. Get the DC value by doing noise measurement
+ // input parameters
+ double startfreq = atof(argv[1]);
+ double stopfreq = atof(argv[2]);
+ double spacfreq = atof(argv[3]);
+ fftpts = atoi(argv[4]);   // fft number of points
+ fftcmd = atoi(argv[5]);   // fft command : SAV_ALL_FFT, NO_SAV_FFT, or any positive integer value to take only one FFT data point
+ unsigned int fftvalsub = atoi(argv[6]);   // adc data value subtractor before fed into the FFT core to remove DC components. Get the DC value by doing noise measurement
 
-	open_physical_memory_device();
-	mmap_peripherals();
-	// init_default_system_param();
+ open_physical_memory_device();
+ mmap_peripherals();
+ // init_default_system_param();
 
-	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
-	alt_write_word( ( h2p_ctrl_out_addr ), ( ctrl_out & ( ~TX_OPA_EN ) ));   // disable the TX opamp
+ ctrl_out = alt_read_word(h2p_ctrl_out_addr);
+ alt_write_word( ( h2p_ctrl_out_addr ), ( ctrl_out & ( ~TX_OPA_EN ) ));   // disable the TX opamp
 
-	unsigned int samples;   // the number of ADC samples taken
-	if ( ( fftcmd == SAV_ALL_FFT ) || ( fftcmd > 0 ))   //
-	{
-		alt_write_word(h2p_adc_val_sub, fftvalsub);   // do noise measurement and all the data to get this ADC DC bias integer value
-		alt_write_word(h2p_fft_ffpts_addr, fftpts);   // get fft with fftpts number of points
-		samples = fftpts;
-	}
-	else {
-		samples = (unsigned int) ( lround(stopfreq / spacfreq) );   // the number of ADC samples taken
-	}
+ unsigned int samples;   // the number of ADC samples taken
+ if ( ( fftcmd == SAV_ALL_FFT ) || ( fftcmd > 0 ))   //
+ {
+ alt_write_word(h2p_adc_val_sub, fftvalsub);   // do noise measurement and all the data to get this ADC DC bias integer value
+ alt_write_word(h2p_fft_ffpts_addr, fftpts);   // get fft with fftpts number of points
+ samples = fftpts;
+ }
+ else {
+ samples = (unsigned int) ( lround(stopfreq / spacfreq) );   // the number of ADC samples taken
+ }
 
-#ifdef GET_RAW_DATA
-	// memory allocation
-	// rddata_16 = (unsigned int*) malloc(samples * sizeof(unsigned int));
-	rddata = (int *) malloc(samples * sizeof(unsigned int));
-#endif
+ #ifdef GET_RAW_DATA
+ // memory allocation
+ // rddata_16 = (unsigned int*) malloc(samples * sizeof(unsigned int));
+ rddata = (int *) malloc(samples * sizeof(unsigned int));
+ #endif
 
-	tx_acq_sync(startfreq, stopfreq, spacfreq, samples);
+ tx_acq_sync(startfreq, stopfreq, spacfreq, samples);
 
-	alt_write_word( ( h2p_ctrl_out_addr ), ( ctrl_out | TX_OPA_EN ));   // re-enable the TX opamp (default)
+ alt_write_word( ( h2p_ctrl_out_addr ), ( ctrl_out | TX_OPA_EN ));   // re-enable the TX opamp (default)
 
-	// close_system();
-	munmap_peripherals();
-	close_physical_memory_device();
+ // close_system();
+ munmap_peripherals();
+ close_physical_memory_device();
 
-#ifdef GET_RAW_DATA
-	// free memory
-	// free (rddata_16);
-	free (rddata);
-#endif
+ #ifdef GET_RAW_DATA
+ // free memory
+ // free (rddata_16);
+ free (rddata);
+ #endif
 
-	return 0;
-}
-//
+ return 0;
+ }
+ */
 
 /* CPMG Iterate
  // rename the output to "cpmg_iterate_raw" and define GET_RAW_DATA to get raw data.
@@ -2453,75 +2550,69 @@ int main(int argc, char * argv[]) {
  }
  */
 
-/* Magnet trigger controller
- // rename the output to "mgnt_trig"
- // this program controls the magnet controller fsm code
- int main(int argc, char * argv[])
- {
- // input parameters
- double chg_plen_us = atof(argv[1]); // charging pulse length
- double chg_dlen_us = atof(argv[2]); // charging delay length
- double dchg_plen_us = atof(argv[3]); // discharging pulse length
- double dchg_dlen_us = atof(argv[4]); // discharging delay length
- unsigned int n = atoi(argv[5]); // number of repetition
- unsigned int d = atoi(argv[6]); // delay after sequence
- // double clk_freq = atof(argv[7]); // clock frequency used by the finite state machine
+// Magnet trigger controller
+// rename the output to "mgnt_trig"
+// this program controls the magnet controller fsm code
+int main(int argc, char * argv[]) {
+	// input parameters
+	double chg_plen_us = atof(argv[1]);   // charging pulse length
+	double chg_dlen_us = atof(argv[2]);   // charging delay length
+	double dchg_plen_us = atof(argv[3]);   // discharging pulse length
+	double dchg_dlen_us = atof(argv[4]);   // discharging delay length
+	unsigned int n = atoi(argv[5]);   // number of repetition
+	unsigned int d = atoi(argv[6]);   // delay after sequence
+	// double clk_freq = atof(argv[7]); // clock frequency used by the finite state machine
 
- double clk_freq = 50.00; // the clock frequency is fixed to be 50 MHz
+	double clk_freq = 50.00;   // the clock frequency is fixed to be 50 MHz
 
- open_physical_memory_device();
- mmap_peripherals();
- init_default_system_param();
+	open_physical_memory_device();
+	mmap_peripherals();
+	init_default_system_param();
 
- // read out the control output before writing it
- ctrl_out = alt_read_word(h2p_ctrl_out_addr);
+	// read out the control output before writing it
+	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
 
- // set pll for CPMG
- // Set_PLL(h2p_nmr_sys_pll_addr, 0, clk_freq, 0.5, DISABLE_MESSAGE);
- // Reset_PLL(h2p_ctrl_out_addr, PLL_NMR_SYS_RST_ofst, ctrl_out);
- // Set_DPS(h2p_nmr_sys_pll_addr, 0, 0, DISABLE_MESSAGE);
- // Wait_PLL_To_Lock(h2p_ctrl_in_addr, PLL_NMR_SYS_lock_ofst);
+	// set pll for CPMG
+	// Set_PLL(h2p_nmr_sys_pll_addr, 0, clk_freq, 0.5, DISABLE_MESSAGE);
+	// Reset_PLL(h2p_ctrl_out_addr, PLL_NMR_SYS_RST_ofst, ctrl_out);
+	// Set_DPS(h2p_nmr_sys_pll_addr, 0, 0, DISABLE_MESSAGE);
+	// Wait_PLL_To_Lock(h2p_ctrl_in_addr, PLL_NMR_SYS_lock_ofst);
 
- // write t1-IR measurement parameters (put both to 0 if IR is not desired)
- alt_write_word(h2p_mgnt_chg_plen_addr,
- (unsigned int) (chg_plen_us * clk_freq));
- alt_write_word(h2p_mgnt_chg_dlen_addr,
- (unsigned int) (chg_dlen_us * clk_freq));
- alt_write_word(h2p_mgnt_dchg_plen_addr,
- (unsigned int) (dchg_plen_us * clk_freq));
- alt_write_word(h2p_mgnt_dchg_dlen_addr,
- (unsigned int) (dchg_dlen_us * clk_freq));
- alt_write_word(h2p_mgnt_n_addr, n);
- alt_write_word(h2p_mgnt_d_addr, d);
+	// write t1-IR measurement parameters (put both to 0 if IR is not desired)
+	alt_write_word(h2p_mgnt_chg_plen_addr, (unsigned int) ( chg_plen_us * clk_freq ));
+	alt_write_word(h2p_mgnt_chg_dlen_addr, (unsigned int) ( chg_dlen_us * clk_freq ));
+	alt_write_word(h2p_mgnt_dchg_plen_addr, (unsigned int) ( dchg_plen_us * clk_freq ));
+	alt_write_word(h2p_mgnt_dchg_dlen_addr, (unsigned int) ( dchg_dlen_us * clk_freq ));
+	alt_write_word(h2p_mgnt_n_addr, n);
+	alt_write_word(h2p_mgnt_d_addr, d);
 
- // reset the magnet controller
- ctrl_out |= MGNT_RST;
- alt_write_word(h2p_ctrl_out_addr, ctrl_out);
- ctrl_out &= ~(MGNT_RST);
- alt_write_word(h2p_ctrl_out_addr, ctrl_out);
+	// reset the magnet controller
+	ctrl_out |= MGNT_RST;
+	alt_write_word(h2p_ctrl_out_addr, ctrl_out);
+	ctrl_out &= ~ ( MGNT_RST );
+	alt_write_word(h2p_ctrl_out_addr, ctrl_out);
 
- // start the FSM
- ctrl_out |= MGNT_START;
- alt_write_word(h2p_ctrl_out_addr, ctrl_out);
- ctrl_out &= ~(MGNT_START);
- alt_write_word(h2p_ctrl_out_addr, ctrl_out);
+	// start the FSM
+	ctrl_out |= MGNT_START;
+	alt_write_word(h2p_ctrl_out_addr, ctrl_out);
+	ctrl_out &= ~ ( MGNT_START );
+	alt_write_word(h2p_ctrl_out_addr, ctrl_out);
 
- // wait for the pulser to finish
- while (!(alt_read_word(h2p_ctrl_in_addr) & MGNT_STAT))
- ;
+	// wait for the pulser to finish
+	while (! ( alt_read_word(h2p_ctrl_in_addr) & MGNT_STAT ))
+		;
 
- // close_system();
- munmap_peripherals();
- close_physical_memory_device();
+	// close_system();
+	munmap_peripherals();
+	close_physical_memory_device();
 
- return 0;
- }
- */
+	return 0;
+}
+//
 
-/* standalone function
+/* hall sensor read function
  // this main function doesn't rely on any other main functions (e.g. to initialize the system) to work on, unlike the main functions above
- int main(int argc, char * argv[])
- {
+ int main(int argc, char * argv[]) {
  // init
  open_physical_memory_device();
  mmap_peripherals();
@@ -2532,11 +2623,9 @@ int main(int argc, char * argv[]) {
  hs_init(h2p_mgnt_hs_addr, ENABLE_MESSAGE);
 
  int ex = 0;
- while (1)
- {
+ while (1) {
  hs_rd_xyz(h2p_mgnt_hs_addr, x, y, z, 10);
- printf("x = %fmT, y = %fmT, z = %fmT\n", conv_to_Tesla(x[0]) * 1e3,
- conv_to_Tesla(y[0]) * 1e3, conv_to_Tesla(z[0]) * 1e3);
+ printf("x = %fmT, y = %fmT, z = %fmT\n", conv_to_Tesla(x[0]) * 1e3, conv_to_Tesla(y[0]) * 1e3, conv_to_Tesla(z[0]) * 1e3);
  // printf("x = %d, y = %d, z = %d\n\n", x[1], y[1], z[1]);
  usleep(500000);
  if (ex)
