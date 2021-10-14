@@ -2263,8 +2263,7 @@ void close_system() {
  // rename the output to "cpmg_iterate_raw" and define GET_RAW_DATA to get raw data.
  // rename the output to "cpmg_iterate_dconv" and define GET_RAW_DCONV to get downconverted data.
  // if CPMG Sequence is used without writing to text file, rename the output to "cpmg_iterate_direct". Use STORE_TO_SDRAM_NOREAD in the cpmg_Sequence
- int main(int argc, char * argv[])
- {
+ int main(int argc, char * argv[]) {
  // this program can only be run with the power supply 'on' that enables ADC circuitry and clock.
  // To turn on the power supply, you can use the Python code and add breakpoint before CPMG_sequence().
  // printf("NMR system start\n");
@@ -2286,22 +2285,20 @@ void close_system() {
  unsigned int delay180_t1_int = atoi(argv[14]);
  unsigned int tx_opa_sd = atoi(argv[15]);	// shutdown tx during reception
  dconv_fact = atoi(argv[16]);	// down conversion factor
- echo_skip_hw = atoi(argv[17]);// echo skipping factor in hardware (echoes captured by the ADC are reduced by this factor)
+ echo_skip_hw = atoi(argv[17]);   // echo skipping factor in hardware (echoes captured by the ADC are reduced by this factor)
 
- if (samples_per_echo % dconv_fact)
- {
+ if (samples_per_echo % dconv_fact) {
  printf("\tERROR: samples_per_echo is not dconv_fact multiplication.\n");
  return 0;
  }
- if (dconv_fact < 4)
- {
+ if (dconv_fact < 4) {
  printf("\tERROR: dconv_fact is less than 4.\n");
  return 0;
  }
 
  // memory allocation
  #ifdef GET_RAW_DATA
- dsize = samples_per_echo*echoes_per_scan/echo_skip_hw; // container size, limited by max memory 1024x1024 usually
+ dsize = samples_per_echo*echoes_per_scan/echo_skip_hw;   // container size, limited by max memory 1024x1024 usually
  if (dsize > 1024*1024)
  {
  printf("\tERROR: (samples_per_echo*echoes_scan/echo_skip_hw) is larger than 1024*1024.\n");
@@ -2312,7 +2309,7 @@ void close_system() {
  rddata = (int *)malloc(dsize*sizeof(int));// divide by 2 because 1 beat contains 2 symbols
  #endif
  #ifdef GET_DCONV_DATA
- dconv_size = samples_per_echo * echoes_per_scan / dconv_fact / echo_skip_hw * 2; // multiply 2 because of IQ data
+ dconv_size = samples_per_echo * echoes_per_scan / dconv_fact / echo_skip_hw * 2;   // multiply 2 because of IQ data
  if (dconv_size > 1024*1024)
  {
  printf("\tERROR: (samples_per_echo*echoes_scan/dconv_fact/echo_skip_hw*2) is larger than 1024*1024.\n");
@@ -2341,38 +2338,34 @@ void close_system() {
 
  // enable the TX opamp during reception, will be controlled using the tx_opa_sd instead
  ctrl_out = ctrl_out | TX_OPA_EN;
- alt_write_word((h2p_ctrl_out_addr), ctrl_out);
+ alt_write_word( ( h2p_ctrl_out_addr ), ctrl_out);
 
- if (tx_opa_sd)
- { // shutdown tx opamp during reception
+ if (tx_opa_sd) {   // shutdown tx opamp during reception
  ctrl_out = ctrl_out | TX_OPA_SD_MSK;
- alt_write_word((h2p_ctrl_out_addr), ctrl_out);
+ alt_write_word( ( h2p_ctrl_out_addr ), ctrl_out);
  }
- else
- { // power up tx opamp all the way during reception
- ctrl_out = ctrl_out & (~TX_OPA_SD_MSK);
- alt_write_word((h2p_ctrl_out_addr), ctrl_out);
+ else {   // power up tx opamp all the way during reception
+ ctrl_out = ctrl_out & ( ~TX_OPA_SD_MSK );
+ alt_write_word( ( h2p_ctrl_out_addr ), ctrl_out);
  }
 
  // read and write fir coefficients
  // fir registers cannot be read like a standard avalon-mm registers, it has sequence if the setting is set to read/write mode
  // look at the fir user guide to see this sequence
  // however, it can be set just to read mode or write mode and it supposed to work with avalon-mm
- ctrl_out &= ~(DCONV_FIR_RST_RESET_N | DCONV_FIR_Q_RST_RESET_N);	// reset the FIR filter
+ ctrl_out &= ~ ( DCONV_FIR_RST_RESET_N | DCONV_FIR_Q_RST_RESET_N );   // reset the FIR filter
  alt_write_word(h2p_ctrl_out_addr, ctrl_out);	// write down the control
  usleep(1);
- ctrl_out |= (DCONV_FIR_RST_RESET_N | DCONV_FIR_Q_RST_RESET_N);// enable the FIR filter
+ ctrl_out |= ( DCONV_FIR_RST_RESET_N | DCONV_FIR_Q_RST_RESET_N );   // enable the FIR filter
  alt_write_word(h2p_ctrl_out_addr, ctrl_out);	// write down the control
  usleep(1);
  // alt_write_word(h2p_dconv_firQ_addr, 20);
  //
 
- alt_write_word(h2p_adc_val_sub, 9275);// do noise measurement and all the data to get this ADC DC bias integer value
+ alt_write_word(h2p_adc_val_sub, 9275);   // do noise measurement and all the data to get this ADC DC bias integer value
 
  // printf("cpmg_freq = %0.3f\n",cpmg_freq);
- CPMG_iterate(cpmg_freq, pulse1_us, pulse2_us, pulse1_dtcl, pulse2_dtcl,
- echo_spacing_us, scan_spacing_us, samples_per_echo, echoes_per_scan,
- init_adc_delay_compensation, number_of_iteration, ph_cycl_en);
+ CPMG_iterate(cpmg_freq, pulse1_us, pulse2_us, pulse1_dtcl, pulse2_dtcl, echo_spacing_us, scan_spacing_us, samples_per_echo, echoes_per_scan, init_adc_delay_compensation, number_of_iteration, ph_cycl_en);
 
  // close_system();
  munmap_peripherals();
@@ -2550,65 +2543,65 @@ void close_system() {
  }
  */
 
-// Magnet trigger controller
-// rename the output to "mgnt_trig"
-// this program controls the magnet controller fsm code
-int main(int argc, char * argv[]) {
-	// input parameters
-	double chg_plen_us = atof(argv[1]);   // charging pulse length
-	double chg_dlen_us = atof(argv[2]);   // charging delay length
-	double dchg_plen_us = atof(argv[3]);   // discharging pulse length
-	double dchg_dlen_us = atof(argv[4]);   // discharging delay length
-	unsigned int n = atoi(argv[5]);   // number of repetition
-	unsigned int d = atoi(argv[6]);   // delay after sequence
-	// double clk_freq = atof(argv[7]); // clock frequency used by the finite state machine
+/* Magnet trigger controller
+ // rename the output to "mgnt_trig"
+ // this program controls the magnet controller fsm code
+ int main(int argc, char * argv[]) {
+ // input parameters
+ double chg_plen_us = atof(argv[1]);   // charging pulse length
+ double chg_dlen_us = atof(argv[2]);   // charging delay length
+ double dchg_plen_us = atof(argv[3]);   // discharging pulse length
+ double dchg_dlen_us = atof(argv[4]);   // discharging delay length
+ unsigned int n = atoi(argv[5]);   // number of repetition
+ unsigned int d = atoi(argv[6]);   // delay after sequence
+ // double clk_freq = atof(argv[7]); // clock frequency used by the finite state machine
 
-	double clk_freq = 50.00;   // the clock frequency is fixed to be 50 MHz
+ double clk_freq = 50.00;   // the clock frequency is fixed to be 50 MHz
 
-	open_physical_memory_device();
-	mmap_peripherals();
-	init_default_system_param();
+ open_physical_memory_device();
+ mmap_peripherals();
+ init_default_system_param();
 
-	// read out the control output before writing it
-	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
+ // read out the control output before writing it
+ ctrl_out = alt_read_word(h2p_ctrl_out_addr);
 
-	// set pll for CPMG
-	// Set_PLL(h2p_nmr_sys_pll_addr, 0, clk_freq, 0.5, DISABLE_MESSAGE);
-	// Reset_PLL(h2p_ctrl_out_addr, PLL_NMR_SYS_RST_ofst, ctrl_out);
-	// Set_DPS(h2p_nmr_sys_pll_addr, 0, 0, DISABLE_MESSAGE);
-	// Wait_PLL_To_Lock(h2p_ctrl_in_addr, PLL_NMR_SYS_lock_ofst);
+ // set pll for CPMG
+ // Set_PLL(h2p_nmr_sys_pll_addr, 0, clk_freq, 0.5, DISABLE_MESSAGE);
+ // Reset_PLL(h2p_ctrl_out_addr, PLL_NMR_SYS_RST_ofst, ctrl_out);
+ // Set_DPS(h2p_nmr_sys_pll_addr, 0, 0, DISABLE_MESSAGE);
+ // Wait_PLL_To_Lock(h2p_ctrl_in_addr, PLL_NMR_SYS_lock_ofst);
 
-	// write t1-IR measurement parameters (put both to 0 if IR is not desired)
-	alt_write_word(h2p_mgnt_chg_plen_addr, (unsigned int) ( chg_plen_us * clk_freq ));
-	alt_write_word(h2p_mgnt_chg_dlen_addr, (unsigned int) ( chg_dlen_us * clk_freq ));
-	alt_write_word(h2p_mgnt_dchg_plen_addr, (unsigned int) ( dchg_plen_us * clk_freq ));
-	alt_write_word(h2p_mgnt_dchg_dlen_addr, (unsigned int) ( dchg_dlen_us * clk_freq ));
-	alt_write_word(h2p_mgnt_n_addr, n);
-	alt_write_word(h2p_mgnt_d_addr, d);
+ // write t1-IR measurement parameters (put both to 0 if IR is not desired)
+ alt_write_word(h2p_mgnt_chg_plen_addr, (unsigned int) ( chg_plen_us * clk_freq ));
+ alt_write_word(h2p_mgnt_chg_dlen_addr, (unsigned int) ( chg_dlen_us * clk_freq ));
+ alt_write_word(h2p_mgnt_dchg_plen_addr, (unsigned int) ( dchg_plen_us * clk_freq ));
+ alt_write_word(h2p_mgnt_dchg_dlen_addr, (unsigned int) ( dchg_dlen_us * clk_freq ));
+ alt_write_word(h2p_mgnt_n_addr, n);
+ alt_write_word(h2p_mgnt_d_addr, d);
 
-	// reset the magnet controller
-	ctrl_out |= MGNT_RST;
-	alt_write_word(h2p_ctrl_out_addr, ctrl_out);
-	ctrl_out &= ~ ( MGNT_RST );
-	alt_write_word(h2p_ctrl_out_addr, ctrl_out);
+ // reset the magnet controller
+ ctrl_out |= MGNT_RST;
+ alt_write_word(h2p_ctrl_out_addr, ctrl_out);
+ ctrl_out &= ~ ( MGNT_RST );
+ alt_write_word(h2p_ctrl_out_addr, ctrl_out);
 
-	// start the FSM
-	ctrl_out |= MGNT_START;
-	alt_write_word(h2p_ctrl_out_addr, ctrl_out);
-	ctrl_out &= ~ ( MGNT_START );
-	alt_write_word(h2p_ctrl_out_addr, ctrl_out);
+ // start the FSM
+ ctrl_out |= MGNT_START;
+ alt_write_word(h2p_ctrl_out_addr, ctrl_out);
+ ctrl_out &= ~ ( MGNT_START );
+ alt_write_word(h2p_ctrl_out_addr, ctrl_out);
 
-	// wait for the pulser to finish
-	while (! ( alt_read_word(h2p_ctrl_in_addr) & MGNT_STAT ))
-		;
+ // wait for the pulser to finish
+ while (! ( alt_read_word(h2p_ctrl_in_addr) & MGNT_STAT ))
+ ;
 
-	// close_system();
-	munmap_peripherals();
-	close_physical_memory_device();
+ // close_system();
+ munmap_peripherals();
+ close_physical_memory_device();
 
-	return 0;
-}
-//
+ return 0;
+ }
+ */
 
 /* hall sensor read function
  // this main function doesn't rely on any other main functions (e.g. to initialize the system) to work on, unlike the main functions above
@@ -2653,3 +2646,59 @@ int main(int argc, char * argv[]) {
  return 0;
  }
  */
+
+// test codes
+#include <signal.h>
+#include <stdio.h>
+
+int main() {
+	int pid1;
+	int pid2;
+	int num = 0;
+
+	pid1 = fork();
+	if (pid1 == 0) /* First child */
+	{
+		while (1) /* Infinite loop */
+		{
+			printf("pid1 is alive:: %d\n", num++);
+			sleep(1);
+		}
+	}
+	if (pid1 != 0) {
+		printf("pid1 = %d\n", pid1);
+	}
+
+	pid2 = fork(); /* Second child */
+	if (pid2 == 0) {
+		while (1) /* Infinite loop */
+		{
+			printf("pid2 is alive:: %d\n", num++);
+			sleep(1);
+
+		}
+	}
+
+	if (pid2 != 0) {
+		printf("pid2 = %d\n", pid2);
+	}
+
+	/*
+	 printf("Forks created\n");
+	 sleep(3);
+	 kill(pid1, SIGSTOP);   //Suspend first child
+	 printf("Stopped first child\n");
+	 sleep(3);
+	 printf("Try to resume first child.\n");
+	 kill(pid1, SIGCONT);   // Resume first child
+	 printf("Resumed first child.\n");
+	 */
+
+	sleep(3);
+	kill(pid1, SIGINT);   // Kill first child
+	printf("Killed first child\n");
+	kill(pid2, SIGINT);   // Kill second child
+	printf("Killed second child\n");
+
+	return 0;
+}

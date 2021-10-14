@@ -1,8 +1,10 @@
 #ifndef HPS_LINUX_H_
 #define HPS_LINUX_H_
 
-// #define GET_RAW_DATA // get raw data and store it to the fifo. Needed for everything that's not using FPGA downconverted data. Cannot be used in conjunction with GET_DCONV_DATA
+#define GET_RAW_DATA // get raw data and store it to the fifo. Needed for everything that's not using FPGA downconverted data. Cannot be used in conjunction with GET_DCONV_DATA
 // #define GET_DCONV_DATA // get downconverted data and store it into the fifo. Use it ONLY on CPMG_iterate main program
+
+#define FREQJUMP // enable multiple frequencies operation. This macro added preamp_tuning and set_matching_network inside cpmg_iterate and synchronization signal for multiple child processes.
 
 #include <alt_generalpurpose_io.h>
 #include <assert.h>
