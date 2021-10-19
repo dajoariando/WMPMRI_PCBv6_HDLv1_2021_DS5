@@ -4,7 +4,7 @@
 #define GET_RAW_DATA // get raw data and store it to the fifo. Needed for everything that's not using FPGA downconverted data. Cannot be used in conjunction with GET_DCONV_DATA
 // #define GET_DCONV_DATA // get downconverted data and store it into the fifo. Use it ONLY on CPMG_iterate main program
 
-#define FREQJUMP // enable multiple frequencies operation. This macro added preamp_tuning and set_matching_network inside cpmg_iterate and synchronization signal for multiple child processes.
+#define CPMG_PARALLEL_MULTIFREQ // enable cpmg multiple frequencies operation. This macro added preamp_tuning and set_matching_network inside cpmg_iterate and synchronization signal for multiple child processes.
 
 #include <alt_generalpurpose_io.h>
 #include <assert.h>
@@ -43,6 +43,11 @@
 
 #include "hps_soc_system.h"
 
+#ifdef CPMG_MULTIFREQ
+#include <signal.h>
+#include <stdio.h>
+#endif
+
 #define ALT_AXI_FPGASLVS_OFST (0xC0000000) // axi_master
 #define HW_FPGA_AXI_SPAN (0x40000000) // Bridge span
 #define HW_FPGA_AXI_MASK ( HW_FPGA_AXI_SPAN - 1 )
@@ -54,6 +59,10 @@
 #define HPS_KEY_N_PORT     (alt_gpio_bit_to_pid(HPS_KEY_N_IDX))      // ALT_GPIO_PORTB
 #define HPS_KEY_N_PORT_BIT (alt_gpio_bit_to_port_pin(HPS_KEY_N_IDX)) // 25 (from GPIO1[25])
 #define HPS_KEY_N_MASK     (1 << HPS_KEY_N_PORT_BIT)
+
+#ifdef CPMG_MULTIFREQ
+void handleContinueSignal(int sig);   // signal handler for multiprocess signaling
+#endif
 
 // physical memory file descriptor
 int fd_dev_mem = 0;

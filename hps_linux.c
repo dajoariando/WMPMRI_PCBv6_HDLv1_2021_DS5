@@ -4,6 +4,10 @@
 
 #include "hps_linux.h"
 
+void handleContinueSignal(int sig) {   // signal handler for multiprocess signaling
+	return;
+}
+
 void open_physical_memory_device() {
 	fd_dev_mem = open("/dev/mem", O_RDWR | O_SYNC);
 	if (fd_dev_mem == -1) {
@@ -760,7 +764,7 @@ void runFSM(double nmr_fsm_clkfreq, uint32_t ph_cycl_en, unsigned int acq_length
 
 			// save as binary file or ascii file (remember to change the corresponding Python code to process the right type of data
 			sprintf(pathname,"%s/%s",foldername,filename);// create a filename
-			wr_File (pathname, acq_length, rddata, SAV_BINARY);// write the data to the filename
+			wr_File (pathname, acq_length, rddata, SAV_ASCII);// write the data to the filename
 
 			// save as ascii file
 			// sprintf(pathname,"%s/%s_ascii",foldername,filename);// create a filename
@@ -942,7 +946,7 @@ void CPMG_iterate(double cpmg_freq, double pulse1_us, double pulse2_us, double p
 
 // settings
 	char progress_verbose = 1;   // print progress
-	char binary_OR_ascii = 1;   // save binary output into the text file (1). Otherwise, it'll be ASCII output (0)
+	char binary_OR_ascii = 0;   // save binary output into the text file (1). Otherwise, it'll be ASCII output (0)
 
 	double nmr_fsm_clkfreq = 16 * cpmg_freq;
 	double adc_ltc1746_freq = 4 * cpmg_freq;
@@ -1142,6 +1146,257 @@ void CPMG_iterate(double cpmg_freq, double pulse1_us, double pulse2_us, double p
 
 	free(name);
 	free(nameavg);
+
+}
+
+void CPMG_iterate_childprocess(double cpmg_freq, double pulse1_us, double pulse2_us, double pulse1_dtcl, double pulse2_dtcl, double echo_spacing_us, long unsigned scan_spacing_us, unsigned int samples_per_echo, unsigned int echoes_per_scan, double init_adc_delay_compensation, unsigned int number_of_iteration, uint32_t ph_cycl_en, unsigned int c_series, unsigned int c_shunt, double vbias, double vvarac, unsigned int child_i) {
+
+// settings
+	char progress_verbose = 0;   // print progress
+	char binary_OR_ascii = 0;   // save binary output into the text file (1). Otherwise, it'll be ASCII output (0)
+
+	double nmr_fsm_clkfreq = 16 * cpmg_freq;
+	double adc_ltc1746_freq = 4 * cpmg_freq;
+
+// read the current ctrl_out
+	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
+
+	char fname[10];
+	sprintf(fname, "cpmg_%03d", child_i);
+	create_measurement_folder(fname);
+// printf("Approximated measurement time : %.2f mins\n",( scan_spacing_us*(double)number_of_iteration) *1e-6/60);
+
+	unsigned int cpmg_param[5];
+	cpmg_param_calculator_ltc1746(cpmg_param, nmr_fsm_clkfreq, cpmg_freq, adc_ltc1746_freq, init_adc_delay_compensation, pulse1_us, pulse2_us, echo_spacing_us, samples_per_echo);
+// print general measurement settings
+	sprintf(pathname, "%s/acqu.par", foldername);
+	fptr = fopen(pathname, "a");
+	fprintf(fptr, "b1Freq = %4.3f\n", cpmg_freq);
+	fprintf(fptr, "p90LengthGiven = %4.3f\n", pulse1_us);
+	fprintf(fptr, "p90LengthRun = %4.3f\n", (double) cpmg_param[PULSE1_OFFST] / nmr_fsm_clkfreq);
+	fprintf(fptr, "p90LengthCnt = %d @ %4.3f MHz\n", cpmg_param[PULSE1_OFFST], nmr_fsm_clkfreq);
+	fprintf(fptr, "d90LengthRun = %4.3f\n", (double) cpmg_param[DELAY1_OFFST] / nmr_fsm_clkfreq);
+	fprintf(fptr, "d90LengthCnt = %d @ %4.3f MHz\n", cpmg_param[DELAY1_OFFST], nmr_fsm_clkfreq);
+	fprintf(fptr, "p180LengthGiven = %4.3f\n", pulse2_us);
+	fprintf(fptr, "p180LengthRun = %4.3f\n", (double) cpmg_param[PULSE2_OFFST] / nmr_fsm_clkfreq);
+	fprintf(fptr, "p180LengthCnt =  %d @ %4.3f MHz\n", cpmg_param[PULSE2_OFFST], nmr_fsm_clkfreq);
+	fprintf(fptr, "d180LengthRun = %4.3f\n", (double) cpmg_param[DELAY2_OFFST] / nmr_fsm_clkfreq);
+	fprintf(fptr, "d180LengthCnt = %d @ %4.3f MHz\n", cpmg_param[DELAY2_OFFST], nmr_fsm_clkfreq);
+//fprintf(fptr,"p90_dtcl = %4.3f\n", pulse1_dtcl);
+//fprintf(fptr,"p180_dtcl = %4.3f\n", pulse2_dtcl);
+	fprintf(fptr, "echoTimeRun = %4.3f\n", (double) ( cpmg_param[PULSE2_OFFST] + cpmg_param[DELAY2_OFFST] ) / nmr_fsm_clkfreq);
+	fprintf(fptr, "echoTimeGiven = %4.3f\n", echo_spacing_us);
+	fprintf(fptr, "ieTime = %lu\n", scan_spacing_us / 1000);
+	fprintf(fptr, "nrPnts = %d\n", samples_per_echo);
+	fprintf(fptr, "nrEchoes = %d\n", echoes_per_scan);
+	fprintf(fptr, "echoShift = %4.3f\n", init_adc_delay_compensation);
+	fprintf(fptr, "nrIterations = %d\n", number_of_iteration);
+	fprintf(fptr, "dummyEchoes = 0\n");
+	fprintf(fptr, "adcFreq = %4.3f\n", adc_ltc1746_freq);
+	fprintf(fptr, "usePhaseCycle = %d\n", ph_cycl_en);
+	fprintf(fptr, "echoSkipHw = %d\n", echo_skip_hw);
+#ifdef GET_RAW_DATA
+	fprintf(fptr, "dwellTime = %4.3f\n", 1 / adc_ltc1746_freq);
+	fprintf(fptr, "fpgaDconv = 0\n");
+	fprintf(fptr,"dconvFact = 1\n");
+#endif
+#ifdef GET_DCONV_DATA
+	fprintf(fptr, "dwellTime = %4.3f\n", 1 / adc_ltc1746_freq*dconv_fact);
+	fprintf(fptr, "fpgaDconv = 1\n");
+	fprintf(fptr,"dconvFact = %d\n", dconv_fact);
+#endif
+	fclose (fptr);
+
+// print matlab script to analyze datas
+	sprintf(pathname, "measurement_history_matlab_script.txt");
+	fptr = fopen(pathname, "a");
+	fprintf(fptr, "compute_iterate([data_folder,'%s']);\n", foldername);
+	fclose(fptr);
+
+// print matlab script to analyze datas
+	sprintf(pathname, "current_folder.txt");
+	fptr = fopen(pathname, "w");
+	fprintf(fptr, "%s\n", foldername);
+	fclose(fptr);
+
+	int iterate = 1;
+
+	int FILENAME_LENGTH = 100;
+	char *name;
+	name = (char*) malloc(FILENAME_LENGTH * sizeof(char));
+	char *nameavg;
+	nameavg = (char*) malloc(FILENAME_LENGTH * sizeof(char));
+
+// amplitude sum
+#ifdef GET_RAW_DATA
+	float Asum[dsize];
+	for (i=0; i<dsize; i++)
+	{
+		Asum[i] = 0;
+	}
+#endif
+
+#ifdef GET_DCONV_DATA
+// downconverted sum
+// printf ("dconv_size = %d\n", dconv_size); // print the buffer size
+	float dconv_sum[dconv_size];
+	for (i=0; i < dconv_size; i++) dconv_sum[i] = 0;
+#endif
+
+	if (progress_verbose) {
+		printf("\tPROGRESS: \n");
+	}
+
+#ifndef CPMG_PARALLEL_MULTIFREQ
+	// set the handle function for multiprocess operation and wait for the signal from the parent process
+	signal(SIGCONT, handleContinueSignal);
+	// printf("\tchild is at wait.\n");
+	pause();
+	// printf("\tchild has continued...\n");
+#endif
+
+	for (iterate = 1; iterate <= number_of_iteration; iterate++) {
+
+#ifdef CPMG_PARALLEL_MULTIFREQ
+		// set the handle function for multiprocess operation and wait for the signal from the parent process
+		signal(SIGCONT, handleContinueSignal);
+		// printf("\tchild %d is at wait (%d).\n", child_i, iterate);
+		pause();
+		// printf("\tchild %d has continued (%d)...\n", child_i, iterate);
+#endif
+
+		// printf("\n*** RUN %d ***\n",iterate);
+		if (progress_verbose)
+			print_progress(iterate, number_of_iteration);
+
+		snprintf(name, FILENAME_LENGTH, "dat_%03d", iterate);
+		snprintf(nameavg, FILENAME_LENGTH, "avg_%03d", iterate);
+
+		// repogram the board tuning
+		write_relay_cnt(c_shunt, c_series, DISABLE_MESSAGE);
+		// init_dac_ad5724r();
+		wr_dac_ad5724r(h2p_dac_preamp_addr, DAC_A, vbias, DISABLE_MESSAGE);
+		wr_dac_ad5724r(h2p_dac_preamp_addr, DAC_B, vvarac, DISABLE_MESSAGE);
+		usleep(500);   // important delay for reprogramming the matching network and preamp dac. Inadequate delay will result in transient noise coming to circuit
+
+		// printf("\tRunning CPMG sequence.\n");
+		CPMG_Sequence(cpmg_freq,   //cpmg_freq
+		pulse1_us,   //pulse1_us
+		pulse2_us,   //pulse2_us
+		pulse1_dtcl,   //pulse1_dtcl
+		pulse2_dtcl,   //pulse2_dtcl
+		echo_spacing_us,   //echo_spacing_us
+		scan_spacing_us,   //scan_spacing_us
+		samples_per_echo,	//samples_per_echo
+		echoes_per_scan,   //echoes_per_scan
+		init_adc_delay_compensation,   //compensation delay number (counted by the adc base clock)
+		ph_cycl_en,   //phase cycle enable/disable
+		name,	//filename for data
+		nameavg,   //filename for average data
+		DISABLE_MESSAGE);
+		// printf("\tFinish CPMG sequence.\n");
+
+#ifdef GET_RAW_DATA
+		// process the data
+		if (ph_cycl_en)
+		{
+			if (iterate % 2 == 0)
+			{
+				for (i = 0; i < dsize; i++)
+				// Asum[i] -= (float)rddata_16[i]/(float)number_of_iteration;
+				Asum[i] -= (float)rddata[i]/(float)number_of_iteration;
+			}
+			else
+			{
+				for (i = 0; i < dsize; i++)
+				// Asum[i] += (float)rddata_16[i]/(float)number_of_iteration;
+				Asum[i] += (float)rddata[i]/(float)number_of_iteration;
+			}
+		}
+		else
+		{
+			for (i = 0; i < dsize; i++)
+			// Asum[i] += (float)rddata_16[i]/(float)number_of_iteration;
+			Asum[i] += (float)rddata[i]/(float)number_of_iteration;
+		}
+
+#endif
+
+#ifdef GET_DCONV_DATA
+		if (ph_cycl_en)
+		{
+			if (iterate % 2 == 0)
+			{
+				for (i = 0; i < dconv_size; i++)
+				dconv_sum[i] -= (float)dconv[i] / (float)number_of_iteration;
+			}
+			else
+			{
+				for (i = 0; i < dconv_size; i++)
+				dconv_sum[i] += (float)dconv[i] / (float)number_of_iteration;
+			}
+		}
+		else
+		{
+			for (i = 0; i < dconv_size; i++)
+			dconv_sum[i] += (float)dconv[i] / (float)number_of_iteration;
+		}
+#endif
+
+#ifdef CPMG_PARALLEL_MULTIFREQ
+		// let the parent process know that the operation has finished
+		// printf("\tEntering sleep\n");
+		// usleep(100);
+		kill(getppid(), SIGCONT);
+
+#endif
+
+	}
+
+#ifdef GET_RAW_DATA
+// write raw data sum
+	sprintf(pathname, "%s/%s", foldername, "asum");// put the data into the data folder
+	fptr = fopen(pathname, "w");
+	if (binary_OR_ascii)
+	{   // binary output
+		fwrite(&Asum, sizeof(float), dsize, fptr);
+	}
+	else
+	{   // ascii output
+		for (i = 0; i < dsize; i++)
+		fprintf(fptr, "%d\n", (int)Asum[i]);
+	}
+	fclose(fptr);
+#endif
+
+#ifdef GET_DCONV_DATA
+// write downconverted data sum in-phase
+	sprintf(pathname, "%s/%s", foldername, "dconv");// put the data into the data folder
+	fptr = fopen(pathname, "w");
+	if (binary_OR_ascii)
+	{   // binary output
+		fwrite(&dconv_sum, sizeof(float), dconv_size, fptr);
+	}
+	else
+	{   // ascii output
+		for (i = 0; i < dconv_size; i++) fprintf(fptr, "%d\n", (int)dconv_sum[i]);
+	}
+	fclose(fptr);
+#endif
+
+	if (progress_verbose) {
+		printf("\t done!\n");
+	}
+
+	free(name);
+	free(nameavg);
+
+#ifndef CPMG_PARALLEL_MULTIFREQ // non multi-frequency mode
+	// let the parent process know that the operation has finished (non multifrequency mode)
+	// printf("\tEntering sleep\n");
+	// usleep(100);
+	kill(getppid(), SIGCONT);
+#endif
 
 }
 
@@ -1461,7 +1716,7 @@ void tx_sampling_async(double tx_freq, double samp_freq, unsigned int tx_num_of_
 // enable transmit on acquisition
 	ctrl_out |= PULSE_ON_RX;
 	alt_write_word( ( h2p_ctrl_out_addr ), ctrl_out);
-	// usleep(1);
+// usleep(1);
 
 	runFSM(samp_freq * 4, ph_cycl_en, tx_num_of_samples, filename, SAV_INDV_SCAN, RD_DATA_VIA_SDRAM_OR_FIFO, RD_FIFO);
 
@@ -1472,7 +1727,7 @@ void tx_sampling_async(double tx_freq, double samp_freq, unsigned int tx_num_of_
 // disable transmit on acquisition
 	ctrl_out &= ~ ( PULSE_ON_RX );
 	alt_write_word( ( h2p_ctrl_out_addr ), ctrl_out);
-	// usleep(1);
+// usleep(1);
 
 // KEEP THIS CODE AND ENABLE IT IF YOU USE C-ONLY, OPPOSED TO USING PYTHON
 // activate normal signal path for the receiver
@@ -1497,50 +1752,50 @@ void tx_sampling_sync(double tx_freq, unsigned int tx_num_of_samples, char * fil
 	alt_write_word( ( h2p_pulse1_addr ), 0);   // random safe number
 	alt_write_word( ( h2p_delay1_addr ), 0);   // random safe number
 	alt_write_word( ( h2p_pulse2_addr ), 0);   // random safe number
-	// alt_write_word( ( h2p_delay2_addr ), tx_num_of_samples * 4 * 2);   // *4 is because the system clock is 4*ADC clock. *2 factor is to increase the delay_window to about 2*acquisition window for safety.
+// alt_write_word( ( h2p_delay2_addr ), tx_num_of_samples * 4 * 2);   // *4 is because the system clock is 4*ADC clock. *2 factor is to increase the delay_window to about 2*acquisition window for safety.
 	alt_write_word( ( h2p_delay2_addr ), tx_num_of_samples * 4);   // *4 is because the system clock is 4*ADC clock. *2 factor is to increase the delay_window to about 2*acquisition window for safety.
-	// alt_write_word( ( h2p_init_adc_delay_addr ), (unsigned int) ( tx_num_of_samples / 2 ));   // put adc acquisition window exactly at the middle of the delay window
+// alt_write_word( ( h2p_init_adc_delay_addr ), (unsigned int) ( tx_num_of_samples / 2 ));   // put adc acquisition window exactly at the middle of the delay window
 	alt_write_word( ( h2p_init_adc_delay_addr ), 0);   // put adc acquisition window exactly at the middle of the delay window
 	alt_write_word( ( h2p_echo_per_scan_addr ), 1);
 	alt_write_word( ( h2p_adc_samples_per_echo_addr ), tx_num_of_samples);
 
 // set pll for the tx sampling
-	//Set_PLL(h2p_analyzer_pll_addr, 0, tx_freq, 0.5, DISABLE_MESSAGE);
-	//Set_PLL(h2p_analyzer_pll_addr, 1, tx_freq, 0.5, DISABLE_MESSAGE);
-	//Set_PLL(h2p_analyzer_pll_addr, 2, tx_freq, 0.5, DISABLE_MESSAGE);
-	//Set_PLL(h2p_analyzer_pll_addr, 3, tx_freq, 0.5, DISABLE_MESSAGE);
-	//Reset_PLL(h2p_ctrl_out_addr, PLL_ANALYZER_RST_ofst, ctrl_out);
-	//Wait_PLL_To_Lock(h2p_ctrl_in_addr, PLL_ANALYZER_lock_ofst);
-	//Set_DPS(h2p_analyzer_pll_addr, 0, 0, DISABLE_MESSAGE);
-	//Set_DPS(h2p_analyzer_pll_addr, 1, 90, DISABLE_MESSAGE);
-	//Set_DPS(h2p_analyzer_pll_addr, 2, 180, DISABLE_MESSAGE);
-	//Set_DPS(h2p_analyzer_pll_addr, 3, 270, DISABLE_MESSAGE);
-	//Wait_PLL_To_Lock(h2p_ctrl_in_addr, PLL_ANALYZER_lock_ofst);
+//Set_PLL(h2p_analyzer_pll_addr, 0, tx_freq, 0.5, DISABLE_MESSAGE);
+//Set_PLL(h2p_analyzer_pll_addr, 1, tx_freq, 0.5, DISABLE_MESSAGE);
+//Set_PLL(h2p_analyzer_pll_addr, 2, tx_freq, 0.5, DISABLE_MESSAGE);
+//Set_PLL(h2p_analyzer_pll_addr, 3, tx_freq, 0.5, DISABLE_MESSAGE);
+//Reset_PLL(h2p_ctrl_out_addr, PLL_ANALYZER_RST_ofst, ctrl_out);
+//Wait_PLL_To_Lock(h2p_ctrl_in_addr, PLL_ANALYZER_lock_ofst);
+//Set_DPS(h2p_analyzer_pll_addr, 0, 0, DISABLE_MESSAGE);
+//Set_DPS(h2p_analyzer_pll_addr, 1, 90, DISABLE_MESSAGE);
+//Set_DPS(h2p_analyzer_pll_addr, 2, 180, DISABLE_MESSAGE);
+//Set_DPS(h2p_analyzer_pll_addr, 3, 270, DISABLE_MESSAGE);
+//Wait_PLL_To_Lock(h2p_ctrl_in_addr, PLL_ANALYZER_lock_ofst);
 
 // enable PLL_analyzer path, disable RF gate path
-	// ctrl_out &= ~(NMR_CLK_GATE_AVLN);
-	// alt_write_word((h2p_ctrl_out_addr), ctrl_out);
+// ctrl_out &= ~(NMR_CLK_GATE_AVLN);
+// alt_write_word((h2p_ctrl_out_addr), ctrl_out);
 
-	// disable PLL_analyzer path and enable the default RF gate path
+// disable PLL_analyzer path and enable the default RF gate path
 	ctrl_out |= NMR_CLK_GATE_AVLN;
 	alt_write_word( ( h2p_ctrl_out_addr ), ctrl_out);
 
 // enable transmit on acquisition
 	ctrl_out |= PULSE_ON_RX;
 	alt_write_word( ( h2p_ctrl_out_addr ), ctrl_out);
-	// usleep(1);
+// usleep(1);
 
-	// runFSM(tx_freq * 16, ph_cycl_en, tx_num_of_samples, filename, SAV_INDV_SCAN, RD_DATA_VIA_SDRAM_OR_FIFO, RD_FIFO);
+// runFSM(tx_freq * 16, ph_cycl_en, tx_num_of_samples, filename, SAV_INDV_SCAN, RD_DATA_VIA_SDRAM_OR_FIFO, RD_FIFO);
 	runFSM(tx_freq * 16, ph_cycl_en, tx_num_of_samples, filename, NO_SAV_INDV_SCAN, RD_DATA_VIA_SDRAM_OR_FIFO, RD_FIFO);
 
 // disable PLL_analyzer path and enable the default RF gate path
-	// ctrl_out |= NMR_CLK_GATE_AVLN;
-	// alt_write_word((h2p_ctrl_out_addr), ctrl_out);
+// ctrl_out |= NMR_CLK_GATE_AVLN;
+// alt_write_word((h2p_ctrl_out_addr), ctrl_out);
 
 // disable transmit on acquisition
 	ctrl_out &= ~ ( PULSE_ON_RX );
 	alt_write_word( ( h2p_ctrl_out_addr ), ctrl_out);
-	// usleep(1);
+// usleep(1);
 
 // KEEP THIS CODE AND ENABLE IT IF YOU USE C-ONLY, OPPOSED TO USING PYTHON
 // activate normal signal path for the receiver
@@ -1574,44 +1829,44 @@ void tune_board(double freq) {
 
 void tx_acq_async(double startfreq, double stopfreq, double spacfreq, double sampfreq, unsigned int nsamples) {
 
-	// buffer in the fpga needs to be an even number, therefore the number of samples should be even as well
+// buffer in the fpga needs to be an even number, therefore the number of samples should be even as well
 	if (nsamples % 2) {
 		nsamples++;
 	}
 
 	create_measurement_folder("tx_acq");
 
-	// print matlab script to analyze datas
+// print matlab script to analyze datas
 	sprintf(pathname, "current_folder.txt");
 	fptr = fopen(pathname, "w");
 	fprintf(fptr, "%s\n", foldername);
 	fclose (fptr);
 
-	// print matlab script to analyze datas
+// print matlab script to analyze datas
 	sprintf(pathname, "measurement_history_matlab_script.txt");
 	fptr = fopen(pathname, "a");
 	fprintf(fptr, "tx_acq([data_folder,'%s']);\n", foldername);
 	fclose(fptr);
 
-	// print the NMR acquired settings
-	//sprintf(pathname,"%s/matlab_settings.txt",foldername);	// put the data into the data folder
-	//fptr = fopen(pathname, "a");
-	//fprintf(fptr,"%f\n", startfreq);
-	//fprintf(fptr,"%f\n", stopfreq);
-	//fprintf(fptr,"%f\n", spacfreq);
-	//fprintf(fptr,"%d\n", nsamples);
-	//fclose(fptr);
+// print the NMR acquired settings
+//sprintf(pathname,"%s/matlab_settings.txt",foldername);	// put the data into the data folder
+//fptr = fopen(pathname, "a");
+//fprintf(fptr,"%f\n", startfreq);
+//fprintf(fptr,"%f\n", stopfreq);
+//fprintf(fptr,"%f\n", spacfreq);
+//fprintf(fptr,"%d\n", nsamples);
+//fclose(fptr);
 
-	//sprintf(pathname,"%s/readable_settings.txt",foldername);	// put the data into the data folder
-	//fptr = fopen(pathname, "a");
-	//fprintf(fptr,"Start frequency: %f\n", startfreq);
-	//fprintf(fptr,"Stop frequency: %f\n", stopfreq);
-	//fprintf(fptr,"Spacing frequency: %f\n", spacfreq);
-	//fprintf(fptr,"Number of samples: %d\n", nsamples);
-	//fclose(fptr);
-	//
+//sprintf(pathname,"%s/readable_settings.txt",foldername);	// put the data into the data folder
+//fptr = fopen(pathname, "a");
+//fprintf(fptr,"Start frequency: %f\n", startfreq);
+//fprintf(fptr,"Stop frequency: %f\n", stopfreq);
+//fprintf(fptr,"Spacing frequency: %f\n", spacfreq);
+//fprintf(fptr,"Number of samples: %d\n", nsamples);
+//fclose(fptr);
+//
 
-	// print general measurement settings
+// print general measurement settings
 	sprintf(pathname, "%s/acqu.par", foldername);
 	fptr = fopen(pathname, "a");
 	fprintf(fptr, "freqSta = %4.3f\n", startfreq);
@@ -1636,44 +1891,44 @@ void tx_acq_async(double startfreq, double stopfreq, double spacfreq, double sam
 
 void tx_acq_sync(double startfreq, double stopfreq, double spacfreq, unsigned int nsamples) {
 
-	// buffer in the fpga needs to be an even number, therefore the number of samples should be even as well
+// buffer in the fpga needs to be an even number, therefore the number of samples should be even as well
 	if (nsamples % 2) {
 		nsamples++;
 	}
 
 	create_measurement_folder("tx_acq");
 
-	// print matlab script to analyze datas
+// print matlab script to analyze datas
 	sprintf(pathname, "current_folder.txt");
 	fptr = fopen(pathname, "w");
 	fprintf(fptr, "%s\n", foldername);
 	fclose (fptr);
 
-	// print matlab script to analyze datas
+// print matlab script to analyze datas
 	sprintf(pathname, "measurement_history_matlab_script.txt");
 	fptr = fopen(pathname, "a");
 	fprintf(fptr, "tx_acq([data_folder,'%s']);\n", foldername);
 	fclose(fptr);
 
-	// print the NMR acquired settings
-	//sprintf(pathname,"%s/matlab_settings.txt",foldername);	// put the data into the data folder
-	//fptr = fopen(pathname, "a");
-	//fprintf(fptr,"%f\n", startfreq);
-	//fprintf(fptr,"%f\n", stopfreq);
-	//fprintf(fptr,"%f\n", spacfreq);
-	//fprintf(fptr,"%d\n", nsamples);
-	//fclose(fptr);
+// print the NMR acquired settings
+//sprintf(pathname,"%s/matlab_settings.txt",foldername);	// put the data into the data folder
+//fptr = fopen(pathname, "a");
+//fprintf(fptr,"%f\n", startfreq);
+//fprintf(fptr,"%f\n", stopfreq);
+//fprintf(fptr,"%f\n", spacfreq);
+//fprintf(fptr,"%d\n", nsamples);
+//fclose(fptr);
 
-	//sprintf(pathname,"%s/readable_settings.txt",foldername);	// put the data into the data folder
-	//fptr = fopen(pathname, "a");
-	//fprintf(fptr,"Start frequency: %f\n", startfreq);
-	//fprintf(fptr,"Stop frequency: %f\n", stopfreq);
-	//fprintf(fptr,"Spacing frequency: %f\n", spacfreq);
-	//fprintf(fptr,"Number of samples: %d\n", nsamples);
-	//fclose(fptr);
-	//
+//sprintf(pathname,"%s/readable_settings.txt",foldername);	// put the data into the data folder
+//fptr = fopen(pathname, "a");
+//fprintf(fptr,"Start frequency: %f\n", startfreq);
+//fprintf(fptr,"Stop frequency: %f\n", stopfreq);
+//fprintf(fptr,"Spacing frequency: %f\n", spacfreq);
+//fprintf(fptr,"Number of samples: %d\n", nsamples);
+//fclose(fptr);
+//
 
-	// print general measurement settings
+// print general measurement settings
 	sprintf(pathname, "%s/acqu.par", foldername);
 	fptr = fopen(pathname, "a");
 	fprintf(fptr, "freqSta = %4.3f\n", startfreq);
@@ -2384,6 +2639,219 @@ void close_system() {
  }
  */
 
+// CPMG Iterate Multifreq
+// rename the output to "cpmg_iterate_multifreq_raw" and define GET_RAW_DATA to get raw data.
+// rename the output to "cpmg_iterate_multifreq_dconv" and define GET_RAW_DCONV to get downconverted data.
+int main(int argc, char * argv[]) {
+	// this program can only be run with the power supply 'on' that enables ADC circuitry and clock.
+	// To turn on the power supply, you can use the Python code and add breakpoint before CPMG_sequence().
+	// printf("NMR system start\n");
+
+	// input parameters
+	double pulse1_us = atof(argv[1]);
+	double pulse2_us = atof(argv[2]);
+	double pulse1_dtcl = atof(argv[3]);
+	double pulse2_dtcl = atof(argv[4]);
+	double echo_spacing_us = atof(argv[5]);
+	long unsigned scan_spacing_us = atoi(argv[6]);
+	long unsigned multiscan_spacing_us = atoi(argv[7]);
+	unsigned int samples_per_echo = atoi(argv[8]);
+	unsigned int echoes_per_scan = atoi(argv[9]);
+	double init_adc_delay_compensation = atof(argv[10]);
+	unsigned int number_of_iteration = atoi(argv[11]);
+	uint32_t ph_cycl_en = atoi(argv[12]);
+	unsigned int pulse180_t1_int = atoi(argv[13]);
+	unsigned int delay180_t1_int = atoi(argv[14]);
+	unsigned int tx_opa_sd = atoi(argv[15]);   // shutdown tx during reception
+	dconv_fact = atoi(argv[16]);   // down conversion factor
+	echo_skip_hw = atoi(argv[17]);   // echo skipping factor in hardware (echoes captured by the ADC are reduced by this factor)
+	unsigned int multifreq_n = atoi(argv[18]);   // the number of different frequencies for CPMG multifrequency operation
+
+	// variables to store multi-frequency parameters
+	double cpmg_freq[multifreq_n];
+	uint16_t c_series[multifreq_n];
+	uint16_t c_shunt[multifreq_n];
+	double vbias[multifreq_n];
+	double vvarac[multifreq_n];
+	int child_pid[multifreq_n];
+
+	for (i = 0; i < multifreq_n; i++) {
+		cpmg_freq[i] = atof(argv[5 * i + 1 + 18]);   // 5 is because the loop consist of 5 parameters to be filled in, and 18 is from the last argument number in "input parameters" above
+		c_series[i] = atoi(argv[5 * i + 2 + 18]);
+		c_shunt[i] = atoi(argv[5 * i + 3 + 18]);
+		vbias[i] = atof(argv[5 * i + 4 + 18]);
+		vvarac[i] = atof(argv[5 * i + 5 + 18]);
+	}
+
+	if (samples_per_echo % dconv_fact) {
+		printf("\tERROR: samples_per_echo is not dconv_fact multiplication.\n");
+		return 0;
+	}
+	if (dconv_fact < 4) {
+		printf("\tERROR: dconv_fact is less than 4.\n");
+		return 0;
+	}
+
+	// memory allocation
+#ifdef GET_RAW_DATA
+	dsize = samples_per_echo*echoes_per_scan/echo_skip_hw;   // container size, limited by max memory 1024x1024 usually
+	if (dsize > 1024*1024)
+	{
+		printf("\tERROR: (samples_per_echo*echoes_scan/echo_skip_hw) is larger than 1024*1024.\n");
+		return 0;
+	}
+
+	// 	rddata_16 = (unsigned int*)malloc(dsize*sizeof(unsigned int));
+	rddata = (int *)malloc(dsize*sizeof(int));// divide by 2 because 1 beat contains 2 symbols
+#endif
+#ifdef GET_DCONV_DATA
+	dconv_size = samples_per_echo * echoes_per_scan / dconv_fact / echo_skip_hw * 2;   // multiply 2 because of IQ data
+	if (dconv_size > 1024*1024)
+	{
+		printf("\tERROR: (samples_per_echo*echoes_scan/dconv_fact/echo_skip_hw*2) is larger than 1024*1024.\n");
+		return 0;
+	}
+
+	dconv = (int *) malloc(dconv_size* sizeof(int));
+#endif
+
+	open_physical_memory_device();
+	mmap_peripherals();
+	// init_default_system_param();
+
+	// write t1-IR measurement parameters (put both to 0 if IR is not desired)
+	alt_write_word(h2p_t1_pulse, pulse180_t1_int);
+	alt_write_word(h2p_t1_delay, delay180_t1_int);
+
+	// write downconversion factor
+	alt_write_word(h2p_dec_fact_addr, dconv_fact);
+
+	// write echo skip factor
+	alt_write_word(h2p_echo_skip_hw_addr, echo_skip_hw);
+
+	// read the current ctrl_out
+	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
+
+	// enable the TX opamp during reception, will be controlled using the tx_opa_sd instead
+	ctrl_out = ctrl_out | TX_OPA_EN;
+	alt_write_word( ( h2p_ctrl_out_addr ), ctrl_out);
+
+	if (tx_opa_sd) {   // shutdown tx opamp during reception
+		ctrl_out = ctrl_out | TX_OPA_SD_MSK;
+		alt_write_word( ( h2p_ctrl_out_addr ), ctrl_out);
+	}
+	else {   // power up tx opamp all the way during reception
+		ctrl_out = ctrl_out & ( ~TX_OPA_SD_MSK );
+		alt_write_word( ( h2p_ctrl_out_addr ), ctrl_out);
+	}
+
+	// read and write fir coefficients
+	// fir registers cannot be read like a standard avalon-mm registers, it has sequence if the setting is set to read/write mode
+	// look at the fir user guide to see this sequence
+	// however, it can be set just to read mode or write mode and it supposed to work with avalon-mm
+	ctrl_out &= ~ ( DCONV_FIR_RST_RESET_N | DCONV_FIR_Q_RST_RESET_N );   // reset the FIR filter
+	alt_write_word(h2p_ctrl_out_addr, ctrl_out);   // write down the control
+	usleep(1);
+	ctrl_out |= ( DCONV_FIR_RST_RESET_N | DCONV_FIR_Q_RST_RESET_N );   // enable the FIR filter
+	alt_write_word(h2p_ctrl_out_addr, ctrl_out);   // write down the control
+	usleep(1);
+	// alt_write_word(h2p_dconv_firQ_addr, 20);
+	//
+
+	alt_write_word(h2p_adc_val_sub, 9275);   // do noise measurement and all the data to get this ADC DC bias integer value
+
+	// CREATE child processes
+	for (i = 0; i < multifreq_n; i++) {
+		child_pid[i] = fork();
+		if (child_pid[i] == 0) {
+			// printf("cpmg_freq = %0.3f\n",cpmg_freq);
+			CPMG_iterate_childprocess(cpmg_freq[i], pulse1_us, pulse2_us, pulse1_dtcl, pulse2_dtcl, echo_spacing_us, scan_spacing_us, samples_per_echo, echoes_per_scan, init_adc_delay_compensation, number_of_iteration, ph_cycl_en, c_series[i], c_shunt[i], vbias[i], vvarac[i], i);
+			_exit (EXIT_SUCCESS);
+		}
+		else if (child_pid[i] == -1) {
+			printf("\t[ERROR] child[%d] process creation failed.\n", i);
+		}
+	}
+	// END of child processes creation
+
+	usleep(500000);   // important delay to make sure the child has already enter "pause" phase and wait for the parent to wake them up one by one.
+
+#ifdef CPMG_PARALLEL_MULTIFREQ
+	// time measurement parameters
+	clock_t start, end;
+	double net_acq_time, net_elapsed_time;
+
+	for (j = 0; j < number_of_iteration; j++) {
+		// measure the start time
+		start = clock();// measure time
+
+		for (i = 0; i < multifreq_n; i++) {
+			// continue one child and wait for the signal to continue from the child
+			// printf("\tSent signal to child to resume.\n");
+			kill(child_pid[i], SIGCONT);
+			signal(SIGCONT, handleContinueSignal);
+			pause();
+		}
+
+		// measure elapsed time after acquisition
+		end = clock();// measure time
+		net_acq_time = ( (double) ( end - start ) ) * 1000000 / CLOCKS_PER_SEC;// measure time in us
+		if (DISABLE_MESSAGE) {
+			printf("\t Elapsed time after multiscan data acquisition is %ld us.\n", (unsigned long) net_acq_time);
+		}
+		// add delay according to the given scan_spacing_us
+		end = clock();// measure time
+		net_elapsed_time = ( (double) ( end - start ) ) * 1000000 / CLOCKS_PER_SEC;// measure time in us
+		if ((unsigned long) net_elapsed_time < multiscan_spacing_us) {
+			while ((unsigned long) net_elapsed_time < multiscan_spacing_us) {
+				end = clock();   // measure time
+				net_elapsed_time = ( (double) ( end - start ) ) * 1000000 / CLOCKS_PER_SEC;// measure time in us
+			}
+
+			if (DISABLE_MESSAGE) {
+				printf("\t Added %0.0f us at the end of the scan to account for multiscan_spacing_us.\n", net_elapsed_time - net_acq_time);
+			}
+		}
+
+		else   // scan duration is already longer than the scan_spacing_us parameter
+		{
+			printf("\t[WARNING] One multiscan duration is longer than multiscan_spacing_us parameter (%ld us) and is measured to be approx. %ld us\n", multiscan_spacing_us, (unsigned long) net_acq_time);
+		}
+
+	}
+#endif
+
+#ifndef CPMG_PARALLEL_MULTIFREQ
+	for (i = 0; i < multifreq_n; i++) {
+		// continue one child and wait for the signal to continue from the child
+		// printf("\tSent signal to child to resume.\n");
+		kill(child_pid[i], SIGCONT);
+		signal(SIGCONT, handleContinueSignal);
+		pause();
+	}
+#endif
+
+	// wait for all children to return
+	while (wait(NULL) > 0)
+		;
+
+	// close_system();
+	munmap_peripherals();
+	close_physical_memory_device();
+
+	// free memory
+#ifdef GET_RAW_DATA
+	// 	free(rddata_16);	//freeing up allocated memory required for multiple calls from host
+	free(rddata);//petrillo 2Feb2019
+#endif
+#ifdef GET_DCONV_DATA
+	free (dconv);
+#endif
+
+	return 0;
+}
+//
+
 /* FID Iterate (rename the output to "fid")
  int main(int argc, char * argv[])
  {
@@ -2647,58 +3115,60 @@ void close_system() {
  }
  */
 
-// test codes
-#include <signal.h>
-#include <stdio.h>
+/* test codes for child processes
+ #include <signal.h>
+ #include <stdio.h>
 
-int main() {
-	int pid1;
-	int pid2;
-	int num = 0;
+ int main() {
+ int pid1;
+ int pid2;
+ int num = 0;
 
-	pid1 = fork();
-	if (pid1 == 0) /* First child */
-	{
-		while (1) /* Infinite loop */
-		{
-			printf("pid1 is alive:: %d\n", num++);
-			sleep(1);
-		}
-	}
-	if (pid1 != 0) {
-		printf("pid1 = %d\n", pid1);
-	}
+ pid1 = fork();
+ if (pid1 == 0) // first child
+ {
+ while (1)
+ {
+ printf("pid1 is alive:: %d\n", num++);
+ sleep(1);
+ }
+ }
+ if (pid1 != 0) {
+ printf("pid1 = %d\n", pid1);
+ }
 
-	pid2 = fork(); /* Second child */
-	if (pid2 == 0) {
-		while (1) /* Infinite loop */
-		{
-			printf("pid2 is alive:: %d\n", num++);
-			sleep(1);
+ pid2 = fork(); // second child
+ if (pid2 == 0) {
+ while (1)
+ {
+ printf("pid2 is alive:: %d\n", num++);
+ signal(SIGCONT, handleContinueSignal);
+ pause();
+ sleep(3);
+ kill(getppid(), SIGCONT);
+ }
+ }
 
-		}
-	}
+ if (pid2 != 0) {
+ printf("pid2 = %d\n", pid2);
+ }
 
-	if (pid2 != 0) {
-		printf("pid2 = %d\n", pid2);
-	}
 
-	/*
-	 printf("Forks created\n");
-	 sleep(3);
-	 kill(pid1, SIGSTOP);   //Suspend first child
-	 printf("Stopped first child\n");
-	 sleep(3);
-	 printf("Try to resume first child.\n");
-	 kill(pid1, SIGCONT);   // Resume first child
-	 printf("Resumed first child.\n");
-	 */
+ // handleContinueSignal
+ sleep(3);
+ kill(pid2, SIGCONT);// Kill first child
+ printf("Resume second child\n");
+ signal(SIGCONT, handleContinueSignal);
+ printf("Parent is paused!\n");
+ pause();
+ printf("Parent is resumed!\n");
 
-	sleep(3);
-	kill(pid1, SIGINT);   // Kill first child
-	printf("Killed first child\n");
-	kill(pid2, SIGINT);   // Kill second child
-	printf("Killed second child\n");
+ sleep(3);
+ kill(pid1, SIGINT);// Kill first child
+ printf("Killed first child\n");
+ kill(pid2, SIGINT);// Kill second child
+ printf("Killed second child\n");
 
-	return 0;
-}
+ return 0;
+ }
+ */
