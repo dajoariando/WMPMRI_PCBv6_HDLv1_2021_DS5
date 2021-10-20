@@ -2795,7 +2795,7 @@ int main(int argc, char * argv[]) {
 			kill(child_pid[i], SIGCONT);
 			parentlock = 1;
 			signal(SIGCONT, handleContinue_parent);
-			while(parentlock);
+			while(parentlock);// wait for the SIGCONT issued by the child processes
 			// pause();
 		}
 
