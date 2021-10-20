@@ -4,8 +4,12 @@
 
 #include "hps_linux.h"
 
-void handleContinueSignal(int sig) {   // signal handler for multiprocess signaling
+void handleContinue_child(int sig) {   // signal handler for multiprocess signaling. Blocking with pause() and SIGCONT
 	return;
+}
+
+void handleContinue_parent(int sig) {   // signal handler for multiprocess signaling. Non-blocking with while() loop and SIGCONT
+	parentlock = 0;   // unlock the parent
 }
 
 void open_physical_memory_device() {
@@ -1249,7 +1253,7 @@ void CPMG_iterate_childprocess(double cpmg_freq, double pulse1_us, double pulse2
 
 #ifndef CPMG_PARALLEL_MULTIFREQ
 	// set the handle function for multiprocess operation and wait for the signal from the parent process
-	signal(SIGCONT, handleContinueSignal);
+	signal(SIGCONT, handleContinue_child);
 	// printf("\tchild is at wait.\n");
 	pause();
 	// printf("\tchild has continued...\n");
@@ -1259,7 +1263,7 @@ void CPMG_iterate_childprocess(double cpmg_freq, double pulse1_us, double pulse2
 
 #ifdef CPMG_PARALLEL_MULTIFREQ
 		// set the handle function for multiprocess operation and wait for the signal from the parent process
-		signal(SIGCONT, handleContinueSignal);
+		signal(SIGCONT, handleContinue_child);
 		// printf("\tchild %d is at wait (%d).\n", child_i, iterate);
 		pause();
 		// printf("\tchild %d has continued (%d)...\n", child_i, iterate);
@@ -2789,8 +2793,10 @@ int main(int argc, char * argv[]) {
 			// continue one child and wait for the signal to continue from the child
 			// printf("\tSent signal to child to resume.\n");
 			kill(child_pid[i], SIGCONT);
-			signal(SIGCONT, handleContinueSignal);
-			pause();
+			parentlock = 1;
+			signal(SIGCONT, handleContinue_parent);
+			while(parentlock);
+			// pause();
 		}
 
 		// measure elapsed time after acquisition
@@ -2826,7 +2832,7 @@ int main(int argc, char * argv[]) {
 		// continue one child and wait for the signal to continue from the child
 		// printf("\tSent signal to child to resume.\n");
 		kill(child_pid[i], SIGCONT);
-		signal(SIGCONT, handleContinueSignal);
+		signal(SIGCONT, handleContinue_child);
 		pause();
 	}
 #endif
