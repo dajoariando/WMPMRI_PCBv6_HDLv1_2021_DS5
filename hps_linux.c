@@ -955,6 +955,10 @@ void CPMG_iterate(double cpmg_freq, double pulse1_us, double pulse2_us, double p
 	double nmr_fsm_clkfreq = 16 * cpmg_freq;
 	double adc_ltc1746_freq = 4 * cpmg_freq;
 
+	unsigned int dmask_n = 14;   // the number of bit masked, should be connected with dmask. not currently used.
+	unsigned int dmask = 0x3FFF;   // mask the data bit to 14-bit, as the ADC is only 14-bit.
+	unsigned char doflow = 0;   // the data overflow, given as 15th bit, and currently not being used.
+
 // read the current ctrl_out
 	ctrl_out = alt_read_word(h2p_ctrl_out_addr);
 
@@ -1073,20 +1077,20 @@ void CPMG_iterate(double cpmg_freq, double pulse1_us, double pulse2_us, double p
 			{
 				for (i = 0; i < dsize; i++)
 				// Asum[i] -= (float)rddata_16[i]/(float)number_of_iteration;
-				Asum[i] -= (float)rddata[i]/(float)number_of_iteration;
+				Asum[i] -= (float)(rddata[i] & dmask)/(float)number_of_iteration;
 			}
 			else
 			{
 				for (i = 0; i < dsize; i++)
 				// Asum[i] += (float)rddata_16[i]/(float)number_of_iteration;
-				Asum[i] += (float)rddata[i]/(float)number_of_iteration;
+				Asum[i] += (float)(rddata[i] & dmask)/(float)number_of_iteration;
 			}
 		}
 		else
 		{
 			for (i = 0; i < dsize; i++)
 			// Asum[i] += (float)rddata_16[i]/(float)number_of_iteration;
-			Asum[i] += (float)rddata[i]/(float)number_of_iteration;
+			Asum[i] += (float)(rddata[i] & dmask)/(float)number_of_iteration;
 		}
 
 #endif
@@ -1593,6 +1597,9 @@ void noise(double cpmg_freq, long unsigned scan_spacing_us, unsigned int samples
 void noise_iterate(double cpmg_freq, long unsigned scan_spacing_us, unsigned int samples_per_echo, unsigned int number_of_iteration, uint32_t enable_message) {
 	double nmr_fsm_clkfreq = 16 * cpmg_freq;
 	double adc_ltc1746_freq = 4 * cpmg_freq;
+	unsigned int dmask_n = 14;   // the number of bit masked, should be connected with dmask
+	unsigned int dmask = 0x3FFF;   // mask the data bit to 14-bit, as the ADC is only 14-bit.
+	unsigned char doflow = 0;   // the data overflow, given as 15th bit, and currently not being used.
 
 	unsigned int fixed_init_adc_delay = 2;   // set to the minimum delay values, which is 2 (limited by HDL structure).
 	double init_delay_inherent;   // inherehent delay factor from the HDL structure. The minimum is 2.25 no matter how small the delay is set. Look ERRATA
@@ -1664,7 +1671,8 @@ void noise_iterate(double cpmg_freq, long unsigned scan_spacing_us, unsigned int
 #ifdef GET_RAW_DATA
 		for (i = 0; i < samples_per_echo; i++)
 		// Asum[i] += rddata_16[i];
-		Asum[i] += rddata[i];
+		Asum[i] += rddata[i] & dmask;
+		doflow |= (rddata[i] >> dmask_n);// if any of the data is overflow, this bit will be set
 #endif
 	}
 
@@ -1945,18 +1953,18 @@ void tx_acq_sync(double startfreq, double stopfreq, double spacfreq, unsigned in
 		case SAV_ALL_FFT:
 			fprintf(fptr, "fftSaveAllData = 1\n");
 			fprintf(fptr, "fftSaveOnePts = 0\n");
-		break;
+			break;
 
 		case NO_SAV_FFT:
 			fprintf(fptr, "fftSaveAllData = 0\n");
 			fprintf(fptr, "fftSaveOnePts = 0\n");
-		break;
+			break;
 
 		default:
 			fprintf(fptr, "fftSaveAllData = 0\n");
 			fprintf(fptr, "fftSaveOnePts = 1\n");
 			fprintf(fptr, "fftPtIdx = %d\n", fftcmd);
-		break;
+			break;
 	}
 
 	char * filename;
@@ -2044,17 +2052,17 @@ void get_FFT_data(char * filename) {
 			// print the imag part of the data
 			sprintf(pathname, "%s/%s_%s", foldername, filename, "Im");
 			wr_File_long(pathname, fftpts, dimag, SAV_ASCII);
-		break;
+			break;
 
 		case NO_SAV_FFT:
-		break;
+			break;
 
 		default:   // any positive numbers of fftcmd. Negative numbers are not allowed
 			fft_localdata_single = alt_read_dword(h2p_fft_ctrl_addr + fftcmd);   // the fft ram is read with the offset of the fftcmd
 			fft_data_re[fft_i] = (long) ( ( fft_localdata_single >> 32 ) & 0xFFFFFFFF );
 			fft_data_im[fft_i] = (long) ( fft_localdata_single & 0xFFFFFFFF );
 			fft_i++;   // increment the i for multi-scan data index
-		break;
+			break;
 	}
 
 }
@@ -2382,8 +2390,7 @@ void close_system() {
  */
 
 /* Wobble Async (rename the output to "wobble_async")
- int main(int argc, char * argv[])
- {
+ int main(int argc, char * argv[]) {
 
  // the wobble function startfreq is minimum 1 MHz, otherwise the TX PLL (h2p_analyzer_pll_addr) won't lock.
 
@@ -2398,11 +2405,11 @@ void close_system() {
  // init_default_system_param();
 
  ctrl_out = alt_read_word(h2p_ctrl_out_addr);
- alt_write_word((h2p_ctrl_out_addr), (ctrl_out & (~TX_OPA_SD_MSK))); // mask out the TX_OPA_SD signal in the fpga (disable TX Opamp shutdown during reception)
+ alt_write_word( ( h2p_ctrl_out_addr ), ( ctrl_out & ( ~TX_OPA_SD_MSK ) ));   // mask out the TX_OPA_SD signal in the fpga (disable TX Opamp shutdown during reception)
 
  //WOBBLE
  // unsigned int wobb_samples = (unsigned int) (lround(sampfreq / spacfreq)); // the number of ADC samples taken
- unsigned int wobb_samples = (unsigned int) (lround(stopfreq / spacfreq)); // the number of ADC samples taken
+ unsigned int wobb_samples = (unsigned int) ( lround(stopfreq / spacfreq) );   // the number of ADC samples taken
 
  // memory allocation
  // rddata_16 = (unsigned int*) malloc(wobb_samples * sizeof(unsigned int));
@@ -2410,7 +2417,7 @@ void close_system() {
 
  tx_acq_async(startfreq, stopfreq, spacfreq, sampfreq, wobb_samples);
 
- alt_write_word((h2p_ctrl_out_addr), (ctrl_out | TX_OPA_SD_MSK)); // re-enable the TX_OPA_SD signal in the fpga
+ alt_write_word( ( h2p_ctrl_out_addr ), ( ctrl_out | TX_OPA_SD_MSK ));   // re-enable the TX_OPA_SD signal in the fpga
 
  // close_system();
  munmap_peripherals();
@@ -2518,147 +2525,23 @@ void close_system() {
  }
  */
 
-/* CPMG Iterate
- // rename the output to "cpmg_iterate_raw" and define GET_RAW_DATA to get raw data.
- // rename the output to "cpmg_iterate_dconv" and define GET_RAW_DCONV to get downconverted data.
- // if CPMG Sequence is used without writing to text file, rename the output to "cpmg_iterate_direct". Use STORE_TO_SDRAM_NOREAD in the cpmg_Sequence
- int main(int argc, char * argv[]) {
- // this program can only be run with the power supply 'on' that enables ADC circuitry and clock.
- // To turn on the power supply, you can use the Python code and add breakpoint before CPMG_sequence().
- // printf("NMR system start\n");
-
- // input parameters
- double cpmg_freq = atof(argv[1]);
- double pulse1_us = atof(argv[2]);
- double pulse2_us = atof(argv[3]);
- double pulse1_dtcl = atof(argv[4]);
- double pulse2_dtcl = atof(argv[5]);
- double echo_spacing_us = atof(argv[6]);
- long unsigned scan_spacing_us = atoi(argv[7]);
- unsigned int samples_per_echo = atoi(argv[8]);
- unsigned int echoes_per_scan = atoi(argv[9]);
- double init_adc_delay_compensation = atof(argv[10]);
- unsigned int number_of_iteration = atoi(argv[11]);
- uint32_t ph_cycl_en = atoi(argv[12]);
- unsigned int pulse180_t1_int = atoi(argv[13]);
- unsigned int delay180_t1_int = atoi(argv[14]);
- unsigned int tx_opa_sd = atoi(argv[15]);	// shutdown tx during reception
- dconv_fact = atoi(argv[16]);	// down conversion factor
- echo_skip_hw = atoi(argv[17]);   // echo skipping factor in hardware (echoes captured by the ADC are reduced by this factor)
-
- if (samples_per_echo % dconv_fact) {
- printf("\tERROR: samples_per_echo is not dconv_fact multiplication.\n");
- return 0;
- }
- if (dconv_fact < 4) {
- printf("\tERROR: dconv_fact is less than 4.\n");
- return 0;
- }
-
- // memory allocation
- #ifdef GET_RAW_DATA
- dsize = samples_per_echo*echoes_per_scan/echo_skip_hw;   // container size, limited by max memory 1024x1024 usually
- if (dsize > 1024*1024)
- {
- printf("\tERROR: (samples_per_echo*echoes_scan/echo_skip_hw) is larger than 1024*1024.\n");
- return 0;
- }
-
- // 	rddata_16 = (unsigned int*)malloc(dsize*sizeof(unsigned int));
- rddata = (int *)malloc(dsize*sizeof(int));// divide by 2 because 1 beat contains 2 symbols
- #endif
- #ifdef GET_DCONV_DATA
- dconv_size = samples_per_echo * echoes_per_scan / dconv_fact / echo_skip_hw * 2;   // multiply 2 because of IQ data
- if (dconv_size > 1024*1024)
- {
- printf("\tERROR: (samples_per_echo*echoes_scan/dconv_fact/echo_skip_hw*2) is larger than 1024*1024.\n");
- return 0;
- }
-
- dconv = (int *) malloc(dconv_size* sizeof(int));
- #endif
-
- open_physical_memory_device();
- mmap_peripherals();
- // init_default_system_param();
-
- // write t1-IR measurement parameters (put both to 0 if IR is not desired)
- alt_write_word(h2p_t1_pulse, pulse180_t1_int);
- alt_write_word(h2p_t1_delay, delay180_t1_int);
-
- // write downconversion factor
- alt_write_word(h2p_dec_fact_addr, dconv_fact);
-
- // write echo skip factor
- alt_write_word(h2p_echo_skip_hw_addr, echo_skip_hw);
-
- // read the current ctrl_out
- ctrl_out = alt_read_word(h2p_ctrl_out_addr);
-
- // enable the TX opamp during reception, will be controlled using the tx_opa_sd instead
- ctrl_out = ctrl_out | TX_OPA_EN;
- alt_write_word( ( h2p_ctrl_out_addr ), ctrl_out);
-
- if (tx_opa_sd) {   // shutdown tx opamp during reception
- ctrl_out = ctrl_out | TX_OPA_SD_MSK;
- alt_write_word( ( h2p_ctrl_out_addr ), ctrl_out);
- }
- else {   // power up tx opamp all the way during reception
- ctrl_out = ctrl_out & ( ~TX_OPA_SD_MSK );
- alt_write_word( ( h2p_ctrl_out_addr ), ctrl_out);
- }
-
- // read and write fir coefficients
- // fir registers cannot be read like a standard avalon-mm registers, it has sequence if the setting is set to read/write mode
- // look at the fir user guide to see this sequence
- // however, it can be set just to read mode or write mode and it supposed to work with avalon-mm
- ctrl_out &= ~ ( DCONV_FIR_RST_RESET_N | DCONV_FIR_Q_RST_RESET_N );   // reset the FIR filter
- alt_write_word(h2p_ctrl_out_addr, ctrl_out);	// write down the control
- usleep(1);
- ctrl_out |= ( DCONV_FIR_RST_RESET_N | DCONV_FIR_Q_RST_RESET_N );   // enable the FIR filter
- alt_write_word(h2p_ctrl_out_addr, ctrl_out);	// write down the control
- usleep(1);
- // alt_write_word(h2p_dconv_firQ_addr, 20);
- //
-
- alt_write_word(h2p_adc_val_sub, 9275);   // do noise measurement and all the data to get this ADC DC bias integer value
-
- // printf("cpmg_freq = %0.3f\n",cpmg_freq);
- CPMG_iterate(cpmg_freq, pulse1_us, pulse2_us, pulse1_dtcl, pulse2_dtcl, echo_spacing_us, scan_spacing_us, samples_per_echo, echoes_per_scan, init_adc_delay_compensation, number_of_iteration, ph_cycl_en);
-
- // close_system();
- munmap_peripherals();
- close_physical_memory_device();
-
- // free memory
- #ifdef GET_RAW_DATA
- // 	free(rddata_16);	//freeing up allocated memory required for multiple calls from host
- free(rddata);//petrillo 2Feb2019
- #endif
- #ifdef GET_DCONV_DATA
- free (dconv);
- #endif
-
- return 0;
- }
- */
-
-// CPMG Iterate Multifreq
-// rename the output to "cpmg_iterate_multifreq_raw" and define GET_RAW_DATA to get raw data.
-// rename the output to "cpmg_iterate_multifreq_dconv" and define GET_RAW_DCONV to get downconverted data.
+// CPMG Iterate
+// rename the output to "cpmg_iterate_raw" and define GET_RAW_DATA to get raw data.
+// rename the output to "cpmg_iterate_dconv" and define GET_RAW_DCONV to get downconverted data.
+// if CPMG Sequence is used without writing to text file, rename the output to "cpmg_iterate_direct". Use STORE_TO_SDRAM_NOREAD in the cpmg_Sequence
 int main(int argc, char * argv[]) {
 	// this program can only be run with the power supply 'on' that enables ADC circuitry and clock.
 	// To turn on the power supply, you can use the Python code and add breakpoint before CPMG_sequence().
 	// printf("NMR system start\n");
 
 	// input parameters
-	double pulse1_us = atof(argv[1]);
-	double pulse2_us = atof(argv[2]);
-	double pulse1_dtcl = atof(argv[3]);
-	double pulse2_dtcl = atof(argv[4]);
-	double echo_spacing_us = atof(argv[5]);
-	long unsigned scan_spacing_us = atoi(argv[6]);
-	long unsigned multiscan_spacing_us = atoi(argv[7]);
+	double cpmg_freq = atof(argv[1]);
+	double pulse1_us = atof(argv[2]);
+	double pulse2_us = atof(argv[3]);
+	double pulse1_dtcl = atof(argv[4]);
+	double pulse2_dtcl = atof(argv[5]);
+	double echo_spacing_us = atof(argv[6]);
+	long unsigned scan_spacing_us = atoi(argv[7]);
 	unsigned int samples_per_echo = atoi(argv[8]);
 	unsigned int echoes_per_scan = atoi(argv[9]);
 	double init_adc_delay_compensation = atof(argv[10]);
@@ -2666,26 +2549,9 @@ int main(int argc, char * argv[]) {
 	uint32_t ph_cycl_en = atoi(argv[12]);
 	unsigned int pulse180_t1_int = atoi(argv[13]);
 	unsigned int delay180_t1_int = atoi(argv[14]);
-	unsigned int tx_opa_sd = atoi(argv[15]);   // shutdown tx during reception
-	dconv_fact = atoi(argv[16]);   // down conversion factor
+	unsigned int tx_opa_sd = atoi(argv[15]);	// shutdown tx during reception
+	dconv_fact = atoi(argv[16]);	// down conversion factor
 	echo_skip_hw = atoi(argv[17]);   // echo skipping factor in hardware (echoes captured by the ADC are reduced by this factor)
-	unsigned int multifreq_n = atoi(argv[18]);   // the number of different frequencies for CPMG multifrequency operation
-
-	// variables to store multi-frequency parameters
-	double cpmg_freq[multifreq_n];
-	uint16_t c_series[multifreq_n];
-	uint16_t c_shunt[multifreq_n];
-	double vbias[multifreq_n];
-	double vvarac[multifreq_n];
-	int child_pid[multifreq_n];
-
-	for (i = 0; i < multifreq_n; i++) {
-		cpmg_freq[i] = atof(argv[5 * i + 1 + 18]);   // 5 is because the loop consist of 5 parameters to be filled in, and 18 is from the last argument number in "input parameters" above
-		c_series[i] = atoi(argv[5 * i + 2 + 18]);
-		c_shunt[i] = atoi(argv[5 * i + 3 + 18]);
-		vbias[i] = atof(argv[5 * i + 4 + 18]);
-		vvarac[i] = atof(argv[5 * i + 5 + 18]);
-	}
 
 	if (samples_per_echo % dconv_fact) {
 		printf("\tERROR: samples_per_echo is not dconv_fact multiplication.\n");
@@ -2754,92 +2620,18 @@ int main(int argc, char * argv[]) {
 	// look at the fir user guide to see this sequence
 	// however, it can be set just to read mode or write mode and it supposed to work with avalon-mm
 	ctrl_out &= ~ ( DCONV_FIR_RST_RESET_N | DCONV_FIR_Q_RST_RESET_N );   // reset the FIR filter
-	alt_write_word(h2p_ctrl_out_addr, ctrl_out);   // write down the control
+	alt_write_word(h2p_ctrl_out_addr, ctrl_out);	// write down the control
 	usleep(1);
 	ctrl_out |= ( DCONV_FIR_RST_RESET_N | DCONV_FIR_Q_RST_RESET_N );   // enable the FIR filter
-	alt_write_word(h2p_ctrl_out_addr, ctrl_out);   // write down the control
+	alt_write_word(h2p_ctrl_out_addr, ctrl_out);	// write down the control
 	usleep(1);
 	// alt_write_word(h2p_dconv_firQ_addr, 20);
 	//
 
 	alt_write_word(h2p_adc_val_sub, 9275);   // do noise measurement and all the data to get this ADC DC bias integer value
 
-	// CREATE child processes
-	for (i = 0; i < multifreq_n; i++) {
-		child_pid[i] = fork();
-		if (child_pid[i] == 0) {
-			// printf("cpmg_freq = %0.3f\n",cpmg_freq);
-			CPMG_iterate_childprocess(cpmg_freq[i], pulse1_us, pulse2_us, pulse1_dtcl, pulse2_dtcl, echo_spacing_us, scan_spacing_us, samples_per_echo, echoes_per_scan, init_adc_delay_compensation, number_of_iteration, ph_cycl_en, c_series[i], c_shunt[i], vbias[i], vvarac[i], i);
-			_exit (EXIT_SUCCESS);
-		}
-		else if (child_pid[i] == -1) {
-			printf("\t[ERROR] child[%d] process creation failed.\n", i);
-		}
-	}
-	// END of child processes creation
-
-	usleep(500000);   // important delay to make sure the child has already enter "pause" phase and wait for the parent to wake them up one by one.
-
-#ifdef CPMG_PARALLEL_MULTIFREQ
-	// time measurement parameters
-	clock_t start, end;
-	double net_acq_time, net_elapsed_time;
-
-	for (j = 0; j < number_of_iteration; j++) {
-		// measure the start time
-		start = clock();// measure time
-
-		for (i = 0; i < multifreq_n; i++) {
-			// continue one child and wait for the signal to continue from the child
-			// printf("\tSent signal to child to resume.\n");
-			kill(child_pid[i], SIGCONT);
-			parentlock = 1;
-			signal(SIGCONT, handleContinue_parent);
-			while(parentlock);// wait for the SIGCONT issued by the child processes
-			// pause();
-		}
-
-		// measure elapsed time after acquisition
-		end = clock();// measure time
-		net_acq_time = ( (double) ( end - start ) ) * 1000000 / CLOCKS_PER_SEC;// measure time in us
-		if (DISABLE_MESSAGE) {
-			printf("\t Elapsed time after multiscan data acquisition is %ld us.\n", (unsigned long) net_acq_time);
-		}
-		// add delay according to the given scan_spacing_us
-		end = clock();// measure time
-		net_elapsed_time = ( (double) ( end - start ) ) * 1000000 / CLOCKS_PER_SEC;// measure time in us
-		if ((unsigned long) net_elapsed_time < multiscan_spacing_us) {
-			while ((unsigned long) net_elapsed_time < multiscan_spacing_us) {
-				end = clock();   // measure time
-				net_elapsed_time = ( (double) ( end - start ) ) * 1000000 / CLOCKS_PER_SEC;// measure time in us
-			}
-
-			if (DISABLE_MESSAGE) {
-				printf("\t Added %0.0f us at the end of the scan to account for multiscan_spacing_us.\n", net_elapsed_time - net_acq_time);
-			}
-		}
-
-		else   // scan duration is already longer than the scan_spacing_us parameter
-		{
-			printf("\t[WARNING] One multiscan duration is longer than multiscan_spacing_us parameter (%ld us) and is measured to be approx. %ld us\n", multiscan_spacing_us, (unsigned long) net_acq_time);
-		}
-
-	}
-#endif
-
-#ifndef CPMG_PARALLEL_MULTIFREQ
-	for (i = 0; i < multifreq_n; i++) {
-		// continue one child and wait for the signal to continue from the child
-		// printf("\tSent signal to child to resume.\n");
-		kill(child_pid[i], SIGCONT);
-		signal(SIGCONT, handleContinue_child);
-		pause();
-	}
-#endif
-
-	// wait for all children to return
-	while (wait(NULL) > 0)
-		;
+	// printf("cpmg_freq = %0.3f\n",cpmg_freq);
+	CPMG_iterate(cpmg_freq, pulse1_us, pulse2_us, pulse1_dtcl, pulse2_dtcl, echo_spacing_us, scan_spacing_us, samples_per_echo, echoes_per_scan, init_adc_delay_compensation, number_of_iteration, ph_cycl_en);
 
 	// close_system();
 	munmap_peripherals();
@@ -2857,6 +2649,221 @@ int main(int argc, char * argv[]) {
 	return 0;
 }
 //
+
+/* CPMG Iterate Multifreq
+ // rename the output to "cpmg_iterate_multifreq_raw" and define GET_RAW_DATA to get raw data.
+ // rename the output to "cpmg_iterate_multifreq_dconv" and define GET_RAW_DCONV to get downconverted data.
+ int main(int argc, char * argv[]) {
+ // this program can only be run with the power supply 'on' that enables ADC circuitry and clock.
+ // To turn on the power supply, you can use the Python code and add breakpoint before CPMG_sequence().
+ // printf("NMR system start\n");
+
+ // input parameters
+ double pulse1_us = atof(argv[1]);
+ double pulse2_us = atof(argv[2]);
+ double pulse1_dtcl = atof(argv[3]);
+ double pulse2_dtcl = atof(argv[4]);
+ double echo_spacing_us = atof(argv[5]);
+ long unsigned scan_spacing_us = atoi(argv[6]);
+ long unsigned multiscan_spacing_us = atoi(argv[7]);
+ unsigned int samples_per_echo = atoi(argv[8]);
+ unsigned int echoes_per_scan = atoi(argv[9]);
+ double init_adc_delay_compensation = atof(argv[10]);
+ unsigned int number_of_iteration = atoi(argv[11]);
+ uint32_t ph_cycl_en = atoi(argv[12]);
+ unsigned int pulse180_t1_int = atoi(argv[13]);
+ unsigned int delay180_t1_int = atoi(argv[14]);
+ unsigned int tx_opa_sd = atoi(argv[15]);   // shutdown tx during reception
+ dconv_fact = atoi(argv[16]);   // down conversion factor
+ echo_skip_hw = atoi(argv[17]);   // echo skipping factor in hardware (echoes captured by the ADC are reduced by this factor)
+ unsigned int multifreq_n = atoi(argv[18]);   // the number of different frequencies for CPMG multifrequency operation
+
+ // variables to store multi-frequency parameters
+ double cpmg_freq[multifreq_n];
+ uint16_t c_series[multifreq_n];
+ uint16_t c_shunt[multifreq_n];
+ double vbias[multifreq_n];
+ double vvarac[multifreq_n];
+ int child_pid[multifreq_n];
+
+ for (i = 0; i < multifreq_n; i++) {
+ cpmg_freq[i] = atof(argv[5 * i + 1 + 18]);   // 5 is because the loop consist of 5 parameters to be filled in, and 18 is from the last argument number in "input parameters" above
+ c_series[i] = atoi(argv[5 * i + 2 + 18]);
+ c_shunt[i] = atoi(argv[5 * i + 3 + 18]);
+ vbias[i] = atof(argv[5 * i + 4 + 18]);
+ vvarac[i] = atof(argv[5 * i + 5 + 18]);
+ }
+
+ if (samples_per_echo % dconv_fact) {
+ printf("\tERROR: samples_per_echo is not dconv_fact multiplication.\n");
+ return 0;
+ }
+ if (dconv_fact < 4) {
+ printf("\tERROR: dconv_fact is less than 4.\n");
+ return 0;
+ }
+
+ // memory allocation
+ #ifdef GET_RAW_DATA
+ dsize = samples_per_echo*echoes_per_scan/echo_skip_hw;   // container size, limited by max memory 1024x1024 usually
+ if (dsize > 1024*1024)
+ {
+ printf("\tERROR: (samples_per_echo*echoes_scan/echo_skip_hw) is larger than 1024*1024.\n");
+ return 0;
+ }
+
+ // 	rddata_16 = (unsigned int*)malloc(dsize*sizeof(unsigned int));
+ rddata = (int *)malloc(dsize*sizeof(int));// divide by 2 because 1 beat contains 2 symbols
+ #endif
+ #ifdef GET_DCONV_DATA
+ dconv_size = samples_per_echo * echoes_per_scan / dconv_fact / echo_skip_hw * 2;   // multiply 2 because of IQ data
+ if (dconv_size > 1024*1024)
+ {
+ printf("\tERROR: (samples_per_echo*echoes_scan/dconv_fact/echo_skip_hw*2) is larger than 1024*1024.\n");
+ return 0;
+ }
+
+ dconv = (int *) malloc(dconv_size* sizeof(int));
+ #endif
+
+ open_physical_memory_device();
+ mmap_peripherals();
+ // init_default_system_param();
+
+ // write t1-IR measurement parameters (put both to 0 if IR is not desired)
+ alt_write_word(h2p_t1_pulse, pulse180_t1_int);
+ alt_write_word(h2p_t1_delay, delay180_t1_int);
+
+ // write downconversion factor
+ alt_write_word(h2p_dec_fact_addr, dconv_fact);
+
+ // write echo skip factor
+ alt_write_word(h2p_echo_skip_hw_addr, echo_skip_hw);
+
+ // read the current ctrl_out
+ ctrl_out = alt_read_word(h2p_ctrl_out_addr);
+
+ // enable the TX opamp during reception, will be controlled using the tx_opa_sd instead
+ ctrl_out = ctrl_out | TX_OPA_EN;
+ alt_write_word( ( h2p_ctrl_out_addr ), ctrl_out);
+
+ if (tx_opa_sd) {   // shutdown tx opamp during reception
+ ctrl_out = ctrl_out | TX_OPA_SD_MSK;
+ alt_write_word( ( h2p_ctrl_out_addr ), ctrl_out);
+ }
+ else {   // power up tx opamp all the way during reception
+ ctrl_out = ctrl_out & ( ~TX_OPA_SD_MSK );
+ alt_write_word( ( h2p_ctrl_out_addr ), ctrl_out);
+ }
+
+ // read and write fir coefficients
+ // fir registers cannot be read like a standard avalon-mm registers, it has sequence if the setting is set to read/write mode
+ // look at the fir user guide to see this sequence
+ // however, it can be set just to read mode or write mode and it supposed to work with avalon-mm
+ ctrl_out &= ~ ( DCONV_FIR_RST_RESET_N | DCONV_FIR_Q_RST_RESET_N );   // reset the FIR filter
+ alt_write_word(h2p_ctrl_out_addr, ctrl_out);   // write down the control
+ usleep(1);
+ ctrl_out |= ( DCONV_FIR_RST_RESET_N | DCONV_FIR_Q_RST_RESET_N );   // enable the FIR filter
+ alt_write_word(h2p_ctrl_out_addr, ctrl_out);   // write down the control
+ usleep(1);
+ // alt_write_word(h2p_dconv_firQ_addr, 20);
+ //
+
+ alt_write_word(h2p_adc_val_sub, 9275);   // do noise measurement and all the data to get this ADC DC bias integer value
+
+ // CREATE child processes
+ for (i = 0; i < multifreq_n; i++) {
+ child_pid[i] = fork();
+ if (child_pid[i] == 0) {
+ // printf("cpmg_freq = %0.3f\n",cpmg_freq);
+ CPMG_iterate_childprocess(cpmg_freq[i], pulse1_us, pulse2_us, pulse1_dtcl, pulse2_dtcl, echo_spacing_us, scan_spacing_us, samples_per_echo, echoes_per_scan, init_adc_delay_compensation, number_of_iteration, ph_cycl_en, c_series[i], c_shunt[i], vbias[i], vvarac[i], i);
+ _exit (EXIT_SUCCESS);
+ }
+ else if (child_pid[i] == -1) {
+ printf("\t[ERROR] child[%d] process creation failed.\n", i);
+ }
+ }
+ // END of child processes creation
+
+ usleep(500000);   // important delay to make sure the child has already enter "pause" phase and wait for the parent to wake them up one by one.
+
+ #ifdef CPMG_PARALLEL_MULTIFREQ
+ // time measurement parameters
+ clock_t start, end;
+ double net_acq_time, net_elapsed_time;
+
+ for (j = 0; j < number_of_iteration; j++) {
+ // measure the start time
+ start = clock();// measure time
+
+ for (i = 0; i < multifreq_n; i++) {
+ // continue one child and wait for the signal to continue from the child
+ // printf("\tSent signal to child to resume.\n");
+ kill(child_pid[i], SIGCONT);
+ parentlock = 1;
+ signal(SIGCONT, handleContinue_parent);
+ while(parentlock);// wait for the SIGCONT issued by the child processes
+ // pause();
+ }
+
+ // measure elapsed time after acquisition
+ end = clock();// measure time
+ net_acq_time = ( (double) ( end - start ) ) * 1000000 / CLOCKS_PER_SEC;// measure time in us
+ if (DISABLE_MESSAGE) {
+ printf("\t Elapsed time after multiscan data acquisition is %ld us.\n", (unsigned long) net_acq_time);
+ }
+ // add delay according to the given scan_spacing_us
+ end = clock();// measure time
+ net_elapsed_time = ( (double) ( end - start ) ) * 1000000 / CLOCKS_PER_SEC;// measure time in us
+ if ((unsigned long) net_elapsed_time < multiscan_spacing_us) {
+ while ((unsigned long) net_elapsed_time < multiscan_spacing_us) {
+ end = clock();   // measure time
+ net_elapsed_time = ( (double) ( end - start ) ) * 1000000 / CLOCKS_PER_SEC;// measure time in us
+ }
+
+ if (DISABLE_MESSAGE) {
+ printf("\t Added %0.0f us at the end of the scan to account for multiscan_spacing_us.\n", net_elapsed_time - net_acq_time);
+ }
+ }
+
+ else   // scan duration is already longer than the scan_spacing_us parameter
+ {
+ printf("\t[WARNING] One multiscan duration is longer than multiscan_spacing_us parameter (%ld us) and is measured to be approx. %ld us\n", multiscan_spacing_us, (unsigned long) net_acq_time);
+ }
+
+ }
+ #endif
+
+ #ifndef CPMG_PARALLEL_MULTIFREQ
+ for (i = 0; i < multifreq_n; i++) {
+ // continue one child and wait for the signal to continue from the child
+ // printf("\tSent signal to child to resume.\n");
+ kill(child_pid[i], SIGCONT);
+ signal(SIGCONT, handleContinue_child);
+ pause();
+ }
+ #endif
+
+ // wait for all children to return
+ while (wait(NULL) > 0)
+ ;
+
+ // close_system();
+ munmap_peripherals();
+ close_physical_memory_device();
+
+ // free memory
+ #ifdef GET_RAW_DATA
+ // 	free(rddata_16);	//freeing up allocated memory required for multiple calls from host
+ free(rddata);//petrillo 2Feb2019
+ #endif
+ #ifdef GET_DCONV_DATA
+ free (dconv);
+ #endif
+
+ return 0;
+ }
+ */
 
 /* FID Iterate (rename the output to "fid")
  int main(int argc, char * argv[])
@@ -2939,7 +2946,7 @@ int main(int argc, char * argv[]) {
  mmap_peripherals();
  init_default_system_param();
 
- double cpmg_freq = samp_freq / 4; // the building block that's used is still nmr cpmg, so the sampling frequency is fixed to 4*cpmg_frequency
+ double cpmg_freq = samp_freq / 4;   // the building block that's used is still nmr cpmg, so the sampling frequency is fixed to 4*cpmg_frequency
  noise_iterate(cpmg_freq, scan_spacing_us, samples_per_echo,
  number_of_iteration, DISABLE_MESSAGE);
 
